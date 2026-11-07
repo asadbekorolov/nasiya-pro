@@ -13,6 +13,7 @@ class Wholesaler(UUIDPrimaryKeyMixin, LegalDetailsMixin, TimestampMixin, Base):
 
     name: Mapped[str] = mapped_column(String(200))
     owner_telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    owner_name: Mapped[str | None] = mapped_column(String(200))  # F.I.O, used in greetings
     phone: Mapped[str | None] = mapped_column(String(32))
     address: Mapped[str | None] = mapped_column(Text)
     currency: Mapped[str] = mapped_column(String(3), default="UZS", server_default="UZS")

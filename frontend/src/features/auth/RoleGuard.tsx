@@ -1,7 +1,9 @@
 import { Lock, Smartphone } from "lucide-react";
 import { lazy, Suspense } from "react";
 
+import { ApiError } from "@/api/client";
 import { authApi } from "@/api/endpoints";
+import type { Me, Role } from "@/api/types";
 import { EmptyState, ErrorState, Screen, Spinner } from "@/components/ui";
 import { useAsync } from "@/lib/useAsync";
 import { getInitData, tg } from "@/telegram/twa";
@@ -11,12 +13,35 @@ const StoreApp = lazy(() => import("@/features/store/StoreApp"));
 const AgentApp = lazy(() => import("@/features/agent/AgentApp"));
 const AdminApp = lazy(() => import("@/features/admin/AdminApp"));
 
+// The bot opens the Mini App at /admin, /agent or /store (the person's own section).
+const ROLE_BY_PATH: Record<string, Role> = {
+  admin: "wholesaler_admin",
+  agent: "sales_agent",
+  store: "store_owner",
+};
+
+function requestedRole(): Role | undefined {
+  return ROLE_BY_PATH[window.location.pathname.split("/")[1] ?? ""];
+}
+
+/** A path is only a hint: without that role the user simply gets their own cabinet. */
+async function loadMe(): Promise<Me> {
+  const role = requestedRole();
+  if (!role) return authApi.me();
+  try {
+    return await authApi.me(role);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 403) return authApi.me();
+    throw error;
+  }
+}
+
 /**
  * Asks the API who the Telegram user is (`GET /auth/me`) and opens the matching
  * cabinet. The backend is the only authority: the role is never inferred locally.
  */
 export function RoleGuard() {
-  const me = useAsync(authApi.me);
+  const me = useAsync(loadMe);
 
   if (!getInitData()) {
     return (

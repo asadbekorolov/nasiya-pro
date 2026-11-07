@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from app.core.money import format_amount
 from app.models import PaymentMethod
 from app.services.directory_service import StoreRef, TelegramIdentity
+from app.services.owner_service import first_name
 
 PAYMENT_METHOD_LABEL = {
     PaymentMethod.CASH: "naqd pul",
@@ -43,8 +44,20 @@ def local_time(value: datetime, tz: str) -> str:
 # --- /start ----------------------------------------------------------------------------
 
 
-def welcome(identity: TelegramIdentity, *, app_available: bool) -> str:
+def admin_greeting(name: str | None) -> str:
+    who = f"Boshqaruvchi {esc(name)}" if name else "Boshqaruvchi"
+    return (
+        f"👑 Xush kelibsiz, {who}! Nasiya Pro boshqaruv panelini ochish uchun quyidagi "
+        "tugmani bosing."
+    )
+
+
+def welcome(
+    identity: TelegramIdentity, *, app_available: bool, telegram_first_name: str | None = None
+) -> str:
     parts: list[str] = []
+    if identity.admin_of:
+        parts.append(admin_greeting(first_name(identity.owner_name) or telegram_first_name))
     if identity.stores:
         parts.append(
             "Xush kelibsiz! Shaxsiy qarz balansingiz va tovar katalogini ko'rish uchun "
@@ -56,12 +69,6 @@ def welcome(identity: TelegramIdentity, *, app_available: bool) -> str:
             "<b>Xush kelibsiz, Savdo Agenti!</b>\n"
             "Marshrut, naqd pul qabul qilish va joyida buyurtma — Agent kabinetida.\n"
             f"Ulgurji sotuvchi: {esc(', '.join(identity.agent_for))}"
-        )
-    if identity.admin_of:
-        parts.append(
-            "<b>Xush kelibsiz!</b> Siz ulgurji sotuvchi sifatida kirgansiz: "
-            f"{esc(', '.join(identity.admin_of))}.\n"
-            "Yangi buyurtmalar haqida xabarlar shu chatga keladi."
         )
     if not app_available:
         parts.append("<i>Mini App manzili hali sozlanmagan — administratorga murojaat qiling.</i>")

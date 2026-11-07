@@ -42,6 +42,10 @@ from app.services.ledger_service import LedgerService
 from app.services.order_service import OrderLine, OrderService
 
 ADMIN_TG, STORE_TG, AGENT_TG = 1000001, 2000001, 3000001
+# The demo tenant is identified by its TIN, not by its owner: the owner can be handed
+# over to a real Telegram account (scripts/seed_owner.py).
+DEMO_TIN = "305112233"
+EXTRA_STORES = [("Fayz savdo", "Samarqand, Siyob bozori, 7", "8000000.00")]
 
 PRODUCTS = [
     ("UN-50", "Un oliy nav, 50 kg", ProductUnit.PIECE, "385000.00", "120"),
@@ -66,7 +70,7 @@ async def assign_store_phone(session_factory, phone: str) -> None:  # type: igno
         store = await session.scalar(
             select(Store)
             .join(Wholesaler, Wholesaler.id == Store.wholesaler_id)
-            .where(Wholesaler.owner_telegram_user_id == ADMIN_TG, Store.name == DEMO_STORE_NAME)
+            .where(Wholesaler.tin == DEMO_TIN, Store.name == DEMO_STORE_NAME)
             .with_for_update()
         )
         if store is None:
@@ -93,14 +97,12 @@ async def main(store_phone: str | None = None) -> None:
     session_factory = build_sessionmaker(engine)
 
     async with session_factory() as session, session.begin():
-        exists = await session.scalar(
-            select(Wholesaler.id).where(Wholesaler.owner_telegram_user_id == ADMIN_TG)
-        )
+        exists = await session.scalar(select(Wholesaler.id).where(Wholesaler.tin == DEMO_TIN))
         if exists is None:
             w = Wholesaler(
                 name="Samarqand Optom",
                 legal_name='"Samarqand Optom Savdo" MChJ',
-                tin="305112233",
+                tin=DEMO_TIN,
                 address="Samarqand sh., Dagbitskaya ko'ch., 12",
                 phone="+998 66 233 44 55",
                 bank_name="Kapitalbank Samarqand filiali",
@@ -128,7 +130,11 @@ async def main(store_phone: str | None = None) -> None:
             agent = Agent(
                 wholesaler_id=w.id, display_name="Savdo agenti", telegram_user_id=AGENT_TG
             )
-            session.add_all([store, store2, agent])
+            extra = [
+                Store(wholesaler_id=w.id, name=name, address=address, credit_limit=Decimal(limit))
+                for name, address, limit in EXTRA_STORES
+            ]
+            session.add_all([store, store2, agent, *extra])
             for sku, name, unit, price, stock in PRODUCTS:
                 session.add(
                     Product(
@@ -141,7 +147,7 @@ async def main(store_phone: str | None = None) -> None:
                     )
                 )
             await session.flush()
-            for s in (store, store2):
+            for s in (store, store2, *extra):
                 session.add(
                     AgentStoreAssignment(wholesaler_id=w.id, agent_id=agent.id, store_id=s.id)
                 )

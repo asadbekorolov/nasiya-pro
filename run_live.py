@@ -4,12 +4,14 @@
     python run_live.py                      # asks for your phone (optional)
     python run_live.py --phone "+998 90 123 45 67"
     python run_live.py --no-phone
+    python run_live.py --owner-id 123456789 --owner-name "Ism Familiya"
 
 What it does:
   1. checks tools (uv, npm), installs dependencies when missing
   2. backend/.env: creates it if missing (generates OTP_SECRET, asks for the bot token)
   3. PostgreSQL: uses DATABASE_URL if reachable, otherwise starts a local embedded server
-  4. runs migrations and seeds the demo tenant; puts YOUR phone on the demo store
+  4. runs migrations and seeds the demo tenant; puts YOUR phone on the demo store;
+     makes the founder (FOUNDER_TELEGRAM_ID in backend/.env) the Wholesaler Admin
   5. opens a Cloudflare quick tunnel (HTTPS) to the Mini App
   6. starts the Mini App (Vite :5173) and the API + Telegram bot (uvicorn :8000)
   7. points the bot's menu button at the tunnel and prints what to do in Telegram
@@ -347,6 +349,30 @@ def seed(uv: str, phone: str | None) -> None:
         ok(line)
 
 
+def resolve_founder(args: argparse.Namespace, env: dict[str, str]) -> tuple[int, str] | None:
+    """The founder's Telegram id/name live in backend/.env (personal data, never in git).
+    --owner-id / --owner-name update them."""
+    raw_id = str(args.owner_id) if args.owner_id else env.get("FOUNDER_TELEGRAM_ID", "")
+    name = args.owner_name if args.owner_name is not None else env.get("FOUNDER_NAME", "")
+    if not raw_id:
+        return None
+    if not raw_id.isdigit() or int(raw_id) <= 0:
+        raise Failure(f"FOUNDER_TELEGRAM_ID noto'g'ri: {raw_id!r}")
+    if args.owner_id or args.owner_name is not None:
+        set_env_values(ENV_FILE, {"FOUNDER_TELEGRAM_ID": raw_id, "FOUNDER_NAME": name})
+    return int(raw_id), name
+
+
+def seed_founder(uv: str, founder: tuple[int, str]) -> None:
+    telegram_id, name = founder
+    cmd = [uv, "run", "python", "scripts/seed_owner.py", "--telegram-id", str(telegram_id)]
+    if name:
+        cmd += ["--name", name]
+    for line in run(cmd, BACKEND).strip().splitlines():
+        if not line.startswith("demo tenant"):
+            ok(line)
+
+
 def ask_phone(args: argparse.Namespace) -> str | None:
     if args.no_phone:
         return None
@@ -456,6 +482,34 @@ def configure_menu_button(token: str, webapp_url: str) -> str:
     return username
 
 
+def configure_founder_menu(token: str, webapp_url: str, telegram_id: int) -> None:
+    """Point the founder's own chat menu at the admin panel right away (the bot does the
+    same on /start; this only works once the founder has opened the bot once)."""
+    try:
+        telegram(
+            token,
+            "setChatMenuButton",
+            {
+                "chat_id": telegram_id,
+                "menu_button": {
+                    "type": "web_app",
+                    "text": MENU_TEXT,
+                    "web_app": {"url": f"{webapp_url}/admin"},
+                },
+            },
+        )
+        ok(f'boshqaruvchi chati ({telegram_id}): "{MENU_TEXT}" -> {webapp_url}/admin')
+    except Failure as exc:
+        warn(f"boshqaruvchi chatiga tugma qo'yilmadi ({exc}); /start bosilganda o'rnatiladi")
+
+
+def reset_founder_menu(token: str, telegram_id: int) -> None:
+    with contextlib.suppress(Failure):
+        telegram(
+            token, "setChatMenuButton", {"chat_id": telegram_id, "menu_button": {"type": "default"}}
+        )
+
+
 def reset_menu_button(token: str) -> None:
     try:
         telegram(token, "setChatMenuButton", {"menu_button": {"type": "default"}})
@@ -464,7 +518,9 @@ def reset_menu_button(token: str) -> None:
         warn(str(exc))
 
 
-def print_instructions(username: str, webapp_url: str, phone: str | None) -> None:
+def print_instructions(
+    username: str, webapp_url: str, phone: str | None, founder: tuple[int, str] | None
+) -> None:
     line = "═" * 66
     claim = (
         '  3. "📞 Telefon raqamni yuborish" tugmasini bosing —\n'
@@ -482,7 +538,14 @@ def print_instructions(username: str, webapp_url: str, phone: str | None) -> Non
         f"  Mini App:  {webapp_url}\n"
         f"  API:       http://127.0.0.1:{API_PORT}/docs\n"
         f"  Loglar:    {LOG_DIR}\n\n"
-        "  Telegramda:\n"
+        + (
+            f"  👑 Boshqaruvchi: {founder[1] or founder[0]} (Telegram ID {founder[0]})\n"
+            f'     /start -> "👑 Boshqaruv paneli" yoki menyudagi "{MENU_TEXT}"\n'
+            f"     ({webapp_url}/admin)\n\n"
+            if founder
+            else ""
+        )
+        + "  Telegramda:\n"
         f"  1. @{username} botini oching.\n"
         "  2. /start ni bosing.\n"
         f"{claim}"
@@ -502,6 +565,10 @@ def main() -> int:
     parser.add_argument("--token", help="bot token (saved to backend/.env only)")
     parser.add_argument("--skip-install", action="store_true", help="skip uv sync / npm install")
     parser.add_argument(
+        "--owner-id", type=int, help="founder's Telegram user id (Wholesaler Admin)"
+    )
+    parser.add_argument("--owner-name", help="founder's full name for the bot greeting")
+    parser.add_argument(
         "--exit-after",
         type=float,
         metavar="SECONDS",
@@ -514,6 +581,7 @@ def main() -> int:
     token = ""
     previous_webapp_url: str | None = None
     menu_set = False
+    founder: tuple[int, str] | None = None
 
     try:
         uv, npm = check_tools()
@@ -522,6 +590,10 @@ def main() -> int:
         env = ensure_env_file(args.token)
         token = env["TELEGRAM_BOT_TOKEN"]
         previous_webapp_url = env.get("WEBAPP_URL", "")
+        if TUNNEL_RE.search(previous_webapp_url):
+            # Left over by a run that was killed: that tunnel is gone, do not restore it.
+            previous_webapp_url = ""
+        founder = resolve_founder(args, env)
 
         for port in (API_PORT, WEB_PORT):
             if port_open(port):
@@ -530,6 +602,10 @@ def main() -> int:
         ensure_database(uv, read_env(ENV_FILE))
         phone = ask_phone(args)
         seed(uv, phone)
+        if founder:
+            seed_founder(uv, founder)
+        else:
+            warn("boshqaruvchi ko'rsatilmagan: --owner-id <Telegram ID> bilan biriktiring")
 
         tunnel, webapp_url = start_tunnel(npm)
         services.append(tunnel)
@@ -569,7 +645,9 @@ def main() -> int:
 
         username = configure_menu_button(token, webapp_url)
         menu_set = True
-        print_instructions(username, webapp_url, phone)
+        if founder:
+            configure_founder_menu(token, webapp_url, founder[0])
+        print_instructions(username, webapp_url, phone, founder)
 
         started = time.monotonic()
         while args.exit_after is None or time.monotonic() - started < args.exit_after:
@@ -586,6 +664,8 @@ def main() -> int:
         code = 1
     finally:
         if menu_set and token:
+            if founder:
+                reset_founder_menu(token, founder[0])
             reset_menu_button(token)
         for svc in reversed(services):
             svc.stop()

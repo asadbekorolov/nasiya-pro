@@ -73,7 +73,7 @@ class Principal:
 current_principal: ContextVar[Principal | None] = ContextVar("current_principal", default=None)
 
 
-def _bind(request: Request, principal: Principal) -> Principal:
+def bind_principal(request: Request, principal: Principal) -> Principal:
     request.state.principal = principal
     current_principal.set(principal)
     return principal
@@ -157,7 +157,7 @@ async def require_admin(
     principal = await resolve_admin(session, tg_user, hint)
     if principal is None:
         raise PermissionDeniedError("Only the wholesaler admin can do this")
-    return _bind(request, principal)
+    return bind_principal(request, principal)
 
 
 async def require_agent(
@@ -166,7 +166,7 @@ async def require_agent(
     principal = await resolve_agent(session, tg_user, hint)
     if principal is None:
         raise PermissionDeniedError("Only a sales agent can do this")
-    return _bind(request, principal)
+    return bind_principal(request, principal)
 
 
 async def require_store(
@@ -175,7 +175,7 @@ async def require_store(
     principal = await resolve_store(session, tg_user, hint)
     if principal is None:
         raise PermissionDeniedError("Only a store owner can do this")
-    return _bind(request, principal)
+    return bind_principal(request, principal)
 
 
 async def get_any_principal(
@@ -185,7 +185,7 @@ async def get_any_principal(
     for resolver in (resolve_admin, resolve_agent, resolve_store):
         principal = await resolver(session, tg_user, hint)
         if principal is not None:
-            return _bind(request, principal)
+            return bind_principal(request, principal)
     raise PermissionDeniedError("This Telegram account has no access")
 
 

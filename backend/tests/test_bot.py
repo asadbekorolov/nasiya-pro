@@ -174,7 +174,7 @@ async def test_start_for_store_owner(bot_env, world: World) -> None:
     assert "Do&#x27;kon A" in sent[0].text or "Do'kon A" in sent[0].text
     button = sent[0].reply_markup.inline_keyboard[0][0]  # type: ignore[union-attr]
     assert button.text == "📱 Nasiya Pro Kabineti"
-    assert button.web_app is not None and button.web_app.url == "https://app.test.example"
+    assert button.web_app is not None and button.web_app.url == "https://app.test.example/store"
 
 
 async def test_start_for_agent_and_admin(bot_env, world: World) -> None:
@@ -183,8 +183,10 @@ async def test_start_for_agent_and_admin(bot_env, world: World) -> None:
     assert sent[0].reply_markup.inline_keyboard[0][0].text == "🧭 Agent kabineti"  # type: ignore[union-attr]
 
     sent = await bot_env(message_update(world.wholesaler.owner_telegram_user_id, text="/start"))
-    assert "ulgurji sotuvchi sifatida" in sent[0].text
-    assert sent[0].reply_markup.inline_keyboard[0][0].text == "📊 Boshqaruv paneli"  # type: ignore[union-attr]
+    assert sent[0].text.startswith(
+        "👑 Xush kelibsiz, Boshqaruvchi Test! Nasiya Pro boshqaruv panelini"
+    )
+    assert sent[0].reply_markup.inline_keyboard[0][0].text == "👑 Boshqaruv paneli"  # type: ignore[union-attr]
 
 
 async def test_start_unregistered_asks_for_phone(bot_env) -> None:
@@ -500,4 +502,35 @@ async def test_start_sets_menu_button_for_the_chat(
     button = calls[0].menu_button
     assert isinstance(button, MenuButtonWebApp)
     assert button.text == "📱 Nasiya Pro"
-    assert button.web_app.url == "https://app.test.example"
+    assert button.web_app.url == "https://app.test.example/store"
+
+
+async def test_owner_greeting_and_admin_menu(
+    sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, session, world: World
+) -> None:
+    from aiogram.methods import SetChatMenuButton
+
+    from app.services.owner_service import assign_owner
+
+    await assign_owner(
+        session,
+        wholesaler_id=world.wholesaler.id,
+        telegram_user_id=world.wholesaler.owner_telegram_user_id,
+        owner_name="Asadbek O'rolov",
+    )
+    bot, recorder = make_bot()
+    dp = create_dispatcher(sessionmaker, settings)
+    await dp.feed_update(
+        bot, message_update(world.wholesaler.owner_telegram_user_id, text="/start")
+    )
+
+    greeting = recorder.sent[0]
+    assert greeting.text == (
+        "👑 Xush kelibsiz, Boshqaruvchi Asadbek! Nasiya Pro boshqaruv panelini ochish uchun "
+        "quyidagi tugmani bosing."
+    )
+    button = greeting.reply_markup.inline_keyboard[0][0]  # type: ignore[union-attr]
+    assert button.web_app.url == "https://app.test.example/admin"  # type: ignore[union-attr]
+    menu = next(r for r in recorder.requests if isinstance(r, SetChatMenuButton))
+    assert menu.chat_id == world.wholesaler.owner_telegram_user_id
+    assert menu.menu_button.web_app.url == "https://app.test.example/admin"  # type: ignore[union-attr]

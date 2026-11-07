@@ -17,34 +17,53 @@ SHARE_PHONE_TEXT = "📞 Telefon raqamni yuborish"
 MENU_BUTTON_TEXT = "📱 Nasiya Pro"
 
 
-def menu_button(settings: Settings) -> MenuButtonWebApp | None:
-    """The chat menu button that opens the Mini App (None without an https URL)."""
-    if not settings.webapp_buttons_enabled or not settings.webapp_url:
-        return None
-    return MenuButtonWebApp(text=MENU_BUTTON_TEXT, web_app=WebAppInfo(url=settings.webapp_url))
+# Mini App sections; the frontend opens the matching cabinet for these paths.
+ADMIN_PATH, AGENT_PATH, STORE_PATH = "/admin", "/agent", "/store"
 
 
-def open_app_button(settings: Settings, text: str) -> InlineKeyboardButton | None:
-    """A web_app button, or None when WEBAPP_URL is not an https URL (Telegram rejects
-    such buttons and the whole message would fail)."""
+def app_url(settings: Settings, path: str = "") -> str | None:
+    """WEBAPP_URL (+ section path), or None when it is not https: Telegram rejects
+    web_app buttons with other URLs and the whole message would fail."""
     if not settings.webapp_buttons_enabled or not settings.webapp_url:
         return None
-    return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=settings.webapp_url))
+    return settings.webapp_url.rstrip("/") + path
+
+
+def home_path(identity: TelegramIdentity) -> str:
+    """The section a person lands in: admin > agent > store."""
+    if identity.admin_of:
+        return ADMIN_PATH
+    if identity.agent_for:
+        return AGENT_PATH
+    if identity.stores:
+        return STORE_PATH
+    return ""
+
+
+def menu_button(settings: Settings, path: str = "") -> MenuButtonWebApp | None:
+    url = app_url(settings, path)
+    if url is None:
+        return None
+    return MenuButtonWebApp(text=MENU_BUTTON_TEXT, web_app=WebAppInfo(url=url))
+
+
+def open_app_button(settings: Settings, text: str, path: str = "") -> InlineKeyboardButton | None:
+    url = app_url(settings, path)
+    return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url)) if url else None
 
 
 def cabinet_keyboard(settings: Settings, identity: TelegramIdentity) -> InlineKeyboardMarkup | None:
-    if identity.admin_of:
-        label = "📊 Boshqaruv paneli"
-    elif identity.agent_for and not identity.stores:
-        label = "🧭 Agent kabineti"
-    else:
-        label = "📱 Nasiya Pro Kabineti"
-    button = open_app_button(settings, label)
+    path = home_path(identity)
+    label = {
+        ADMIN_PATH: "👑 Boshqaruv paneli",
+        AGENT_PATH: "🧭 Agent kabineti",
+    }.get(path, "📱 Nasiya Pro Kabineti")
+    button = open_app_button(settings, label, path)
     return InlineKeyboardMarkup(inline_keyboard=[[button]]) if button else None
 
 
-def single_app_button(settings: Settings, text: str) -> InlineKeyboardMarkup | None:
-    button = open_app_button(settings, text)
+def single_app_button(settings: Settings, text: str, path: str = "") -> InlineKeyboardMarkup | None:
+    button = open_app_button(settings, text, path)
     return InlineKeyboardMarkup(inline_keyboard=[[button]]) if button else None
 
 

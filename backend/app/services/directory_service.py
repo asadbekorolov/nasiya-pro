@@ -49,6 +49,7 @@ class StoreRef:
 class TelegramIdentity:
     telegram_user_id: int
     admin_of: list[str] = field(default_factory=list)  # wholesaler names
+    owner_name: str | None = None  # wholesalers.owner_name of the (first) owned tenant
     agent_for: list[str] = field(default_factory=list)  # wholesaler names
     stores: list[StoreRef] = field(default_factory=list)
 
@@ -69,14 +70,16 @@ class DirectoryService:
         self.session = session
 
     async def identify(self, telegram_user_id: int) -> TelegramIdentity:
-        admin_of = (
-            await self.session.scalars(
-                select(Wholesaler.name).where(
+        owned = (
+            await self.session.execute(
+                select(Wholesaler.name, Wholesaler.owner_name).where(
                     Wholesaler.owner_telegram_user_id == telegram_user_id,
                     Wholesaler.is_active.is_(True),
                 )
             )
         ).all()
+        admin_of = [name for name, _ in owned]
+        owner_name = next((owner for _, owner in owned if owner), None)
         agent_for = (
             await self.session.scalars(
                 select(Wholesaler.name)
@@ -103,7 +106,8 @@ class DirectoryService:
         ).all()
         return TelegramIdentity(
             telegram_user_id=telegram_user_id,
-            admin_of=list(admin_of),
+            admin_of=admin_of,
+            owner_name=owner_name,
             agent_for=list(agent_for),
             stores=[StoreRef(sid, name, wname) for sid, name, wname in stores],
         )

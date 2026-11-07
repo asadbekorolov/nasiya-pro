@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import messages
 from app.bot.keyboards import (
     REMOVE_KEYBOARD,
+    STORE_PATH,
     cabinet_keyboard,
+    home_path,
     menu_button,
     share_phone_keyboard,
     single_app_button,
@@ -25,10 +27,11 @@ from app.services.directory_service import DirectoryService
 logger = logging.getLogger(__name__)
 
 
-async def set_chat_menu(message: Message, settings: Settings) -> None:
-    """Put the Mini App on this chat's menu button. The bot-wide default is set at
-    startup too, but a per-chat button is what Telegram reliably shows. Best effort."""
-    button = menu_button(settings)
+async def set_chat_menu(message: Message, settings: Settings, path: str = "") -> None:
+    """Put the Mini App (at the person's own section) on this chat's menu button. The
+    bot-wide default is set at startup too, but a per-chat button is what Telegram
+    reliably shows. Best effort."""
+    button = menu_button(settings, path)
     if button is None or message.bot is None:
         return
     try:
@@ -45,10 +48,14 @@ async def cmd_start(message: Message, session: AsyncSession, settings: Settings)
         await message.answer(messages.UNREGISTERED, reply_markup=share_phone_keyboard())
         return
     await message.answer(
-        messages.welcome(identity, app_available=settings.webapp_buttons_enabled),
+        messages.welcome(
+            identity,
+            app_available=settings.webapp_buttons_enabled,
+            telegram_first_name=message.from_user.first_name,
+        ),
         reply_markup=cabinet_keyboard(settings, identity) or REMOVE_KEYBOARD,
     )
-    await set_chat_menu(message, settings)
+    await set_chat_menu(message, settings, home_path(identity))
 
 
 async def on_contact(message: Message, session: AsyncSession, settings: Settings) -> None:
@@ -67,10 +74,10 @@ async def on_contact(message: Message, session: AsyncSession, settings: Settings
     stores = result.linked + result.already_linked
     if stores:
         await message.answer(messages.contact_linked(stores), reply_markup=REMOVE_KEYBOARD)
-        markup = single_app_button(settings, "📱 Nasiya Pro Kabineti")
+        markup = single_app_button(settings, "📱 Nasiya Pro Kabineti", STORE_PATH)
         if markup:
             await message.answer("Kabinetni ochish:", reply_markup=markup)
-        await set_chat_menu(message, settings)
+        await set_chat_menu(message, settings, STORE_PATH)
         return
     if result.taken:
         await message.answer(messages.CONTACT_TAKEN, reply_markup=REMOVE_KEYBOARD)

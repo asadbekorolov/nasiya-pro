@@ -9,6 +9,7 @@ import type {
   PaymentMethod,
   PaymentResult,
   Product,
+  Role,
   StatementLink,
   StoreMe,
   TransactionPage,
@@ -27,7 +28,8 @@ export interface CatalogQuery {
 }
 
 export const authApi = {
-  me: () => apiClient.get<Me>("auth/me"),
+  /** Without `role`: wholesaler_admin > sales_agent > store_owner. */
+  me: (role?: Role) => apiClient.get<Me>("auth/me", { role }),
 };
 
 export const storeApi = {
