@@ -34,3 +34,8 @@ Thumbs.db
 # Frontend build output
 frontend/dist/
 *.tsbuildinfo
+
+# Local runtime (run_live.py)
+backend/.localdb/
+.live/
+.claude/

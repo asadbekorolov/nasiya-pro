@@ -15,6 +15,13 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    strictPort: true,
+    // Vite rejects unknown Host headers; allow the HTTPS tunnel used by run_live.py
+    // (Cloudflare quick tunnels) plus anything listed in VITE_ALLOWED_HOSTS.
+    allowedHosts: [
+      ".trycloudflare.com",
+      ...(process.env.VITE_ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean),
+    ],
     proxy: {
       "/api": { target: process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8000", changeOrigin: true },
     },

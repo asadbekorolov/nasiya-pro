@@ -7,10 +7,16 @@ Telegram ids (use them with scripts/dev_init_data.py):
     2000001  store owner ("Baraka market")
     3000001  sales agent
 Re-running is a no-op when the demo wholesaler already exists. Never run in production.
+
+    uv run python scripts/seed_demo.py --store-phone "+998 90 123 45 67"
+
+puts YOUR phone on the demo store "Baraka market": share your contact with the bot
+(/start -> "Telefon raqamni yuborish") and your Telegram account becomes its owner.
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
 from decimal import Decimal
@@ -31,6 +37,7 @@ from app.models import (
     Store,
     Wholesaler,
 )
+from app.services.directory_service import normalize_phone
 from app.services.ledger_service import LedgerService
 from app.services.order_service import OrderLine, OrderService
 
@@ -46,7 +53,39 @@ PRODUCTS = [
 ]
 
 
-async def main() -> None:
+DEMO_STORE_NAME = "Baraka market"
+
+
+async def assign_store_phone(session_factory, phone: str) -> None:  # type: ignore[no-untyped-def]
+    """Put a real phone number on the demo store so its owner can claim it via the bot.
+    Never detaches a store that a real Telegram account has already claimed."""
+    normalized = normalize_phone(phone)
+    if normalized is None:
+        sys.exit(f"invalid phone number: {phone!r}")
+    async with session_factory() as session, session.begin():
+        store = await session.scalar(
+            select(Store)
+            .join(Wholesaler, Wholesaler.id == Store.wholesaler_id)
+            .where(Wholesaler.owner_telegram_user_id == ADMIN_TG, Store.name == DEMO_STORE_NAME)
+            .with_for_update()
+        )
+        if store is None:
+            sys.exit("demo store not found")
+        if store.telegram_user_id not in (None, STORE_TG):
+            if normalize_phone(store.phone) == normalized:
+                print(f"demo store already linked to Telegram id {store.telegram_user_id}")
+            else:
+                print(
+                    "demo store is linked to another Telegram account "
+                    f"({store.telegram_user_id}); phone left unchanged"
+                )
+            return
+        store.phone = f"+{normalized}"
+        store.telegram_user_id = None  # free it from the fake dev id
+        print(f"demo store phone set to +{normalized}; share this contact with the bot")
+
+
+async def main(store_phone: str | None = None) -> None:
     settings = get_settings()
     if settings.is_production:
         sys.exit("refusing to seed demo data in production")
@@ -116,6 +155,8 @@ async def main() -> None:
 
     if exists is not None:
         print("demo tenant already exists:", exists)
+        if store_phone:
+            await assign_store_phone(session_factory, store_phone)
         await engine.dispose()
         return
 
@@ -152,9 +193,14 @@ async def main() -> None:
             store_id=store_id,
             lines=[OrderLine(products["CHY-100"], Decimal("5"))],
         )
-    await engine.dispose()
     print("demo tenant created:", wholesaler_id)
+    if store_phone:
+        await assign_store_phone(session_factory, store_phone)
+    await engine.dispose()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="Create the local demo tenant")
+    parser.add_argument("--store-phone", help="your phone, to claim the demo store via the bot")
+    args = parser.parse_args()
+    asyncio.run(main(args.store_phone))

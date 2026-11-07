@@ -4,6 +4,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
+    MenuButtonWebApp,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     WebAppInfo,
@@ -13,6 +14,14 @@ from app.core.config import Settings
 from app.services.directory_service import TelegramIdentity
 
 SHARE_PHONE_TEXT = "📞 Telefon raqamni yuborish"
+MENU_BUTTON_TEXT = "📱 Nasiya Pro"
+
+
+def menu_button(settings: Settings) -> MenuButtonWebApp | None:
+    """The chat menu button that opens the Mini App (None without an https URL)."""
+    if not settings.webapp_buttons_enabled or not settings.webapp_url:
+        return None
+    return MenuButtonWebApp(text=MENU_BUTTON_TEXT, web_app=WebAppInfo(url=settings.webapp_url))
 
 
 def open_app_button(settings: Settings, text: str) -> InlineKeyboardButton | None:

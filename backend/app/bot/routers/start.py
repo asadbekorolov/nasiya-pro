@@ -6,6 +6,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.bot import messages
 from app.bot.keyboards import (
     REMOVE_KEYBOARD,
     cabinet_keyboard,
+    menu_button,
     share_phone_keyboard,
     single_app_button,
 )
@@ -21,6 +23,18 @@ from app.core.config import Settings
 from app.services.directory_service import DirectoryService
 
 logger = logging.getLogger(__name__)
+
+
+async def set_chat_menu(message: Message, settings: Settings) -> None:
+    """Put the Mini App on this chat's menu button. The bot-wide default is set at
+    startup too, but a per-chat button is what Telegram reliably shows. Best effort."""
+    button = menu_button(settings)
+    if button is None or message.bot is None:
+        return
+    try:
+        await message.bot.set_chat_menu_button(chat_id=message.chat.id, menu_button=button)
+    except TelegramAPIError as exc:
+        logger.warning("could not set menu button for chat %s: %s", message.chat.id, exc)
 
 
 async def cmd_start(message: Message, session: AsyncSession, settings: Settings) -> None:
@@ -34,6 +48,7 @@ async def cmd_start(message: Message, session: AsyncSession, settings: Settings)
         messages.welcome(identity, app_available=settings.webapp_buttons_enabled),
         reply_markup=cabinet_keyboard(settings, identity) or REMOVE_KEYBOARD,
     )
+    await set_chat_menu(message, settings)
 
 
 async def on_contact(message: Message, session: AsyncSession, settings: Settings) -> None:
@@ -55,6 +70,7 @@ async def on_contact(message: Message, session: AsyncSession, settings: Settings
         markup = single_app_button(settings, "📱 Nasiya Pro Kabineti")
         if markup:
             await message.answer("Kabinetni ochish:", reply_markup=markup)
+        await set_chat_menu(message, settings)
         return
     if result.taken:
         await message.answer(messages.CONTACT_TAKEN, reply_markup=REMOVE_KEYBOARD)

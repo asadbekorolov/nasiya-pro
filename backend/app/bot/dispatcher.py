@@ -21,10 +21,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import BotCommand, MenuButtonWebApp, Update, WebAppInfo
+from aiogram.types import BotCommand, Update
 from aiogram.utils.token import TokenValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.bot.keyboards import menu_button
 from app.bot.middlewares import DependenciesMiddleware
 from app.bot.notifications import BotNotifier
 from app.bot.routers import build_root_router
@@ -116,12 +117,9 @@ class BotRuntime:
             await self.bot.set_my_commands(
                 [BotCommand(command="start", description="Asosiy menyu")]
             )
-            if self.settings.webapp_buttons_enabled and self.settings.webapp_url:
-                await self.bot.set_chat_menu_button(
-                    menu_button=MenuButtonWebApp(
-                        text="Kabinet", web_app=WebAppInfo(url=self.settings.webapp_url)
-                    )
-                )
+            button = menu_button(self.settings)
+            if button is not None:
+                await self.bot.set_chat_menu_button(menu_button=button)
         except TelegramAPIError as exc:
             logger.warning("could not configure bot profile: %s", exc)
 

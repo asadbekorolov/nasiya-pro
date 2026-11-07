@@ -483,3 +483,21 @@ async def test_api_emits_events_once(client: httpx.AsyncClient, world: World, no
         headers=admin,
     )
     assert [c[0] for c in events.calls].count("payment_received") == 2
+
+
+async def test_start_sets_menu_button_for_the_chat(
+    sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, world: World
+) -> None:
+    from aiogram.methods import SetChatMenuButton
+    from aiogram.types import MenuButtonWebApp
+
+    bot, recorder = make_bot()
+    dp = create_dispatcher(sessionmaker, settings)
+    await dp.feed_update(bot, message_update(world.store.telegram_user_id, text="/start"))
+    calls = [r for r in recorder.requests if isinstance(r, SetChatMenuButton)]
+    assert len(calls) == 1
+    assert calls[0].chat_id == world.store.telegram_user_id
+    button = calls[0].menu_button
+    assert isinstance(button, MenuButtonWebApp)
+    assert button.text == "📱 Nasiya Pro"
+    assert button.web_app.url == "https://app.test.example"
