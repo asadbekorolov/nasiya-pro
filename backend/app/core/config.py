@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BOT_TOKEN_RE = re.compile(r"\d{5,16}:[A-Za-z0-9_-]{30,}")
 
 
 class Settings(BaseSettings):
@@ -39,7 +42,16 @@ class Settings(BaseSettings):
 
     # --- Telegram ---
     telegram_bot_token: SecretStr
+    telegram_bot_username: str | None = None  # without "@", used for t.me links
     telegram_init_data_ttl_seconds: int = Field(default=86_400, ge=60)
+    # Public HTTPS URL of the Mini App (frontend). Telegram only opens web_app buttons
+    # over HTTPS; without it the bot still works but shows no "open app" buttons.
+    webapp_url: str | None = None
+    # off: API only (tests, extra API workers) · polling: dev / single process ·
+    # webhook: production (Telegram POSTs updates to WEBHOOK_BASE_URL)
+    bot_mode: Literal["off", "polling", "webhook"] = "off"
+    bot_webhook_base_url: str | None = None  # e.g. https://api.example.uz
+    bot_webhook_secret: SecretStr | None = None  # X-Telegram-Bot-Api-Secret-Token
 
     # --- Payment OTP ---
     otp_secret: SecretStr
@@ -69,11 +81,32 @@ class Settings(BaseSettings):
             raise ValueError("DEBUG must be false in production")
         if self.environment in ("production", "staging") and self.otp_delivery != "telegram":
             raise ValueError("OTP_DELIVERY=log is only allowed in local/test environments")
+        token = self.telegram_bot_token.get_secret_value()
+        if self.environment in ("production", "staging") and not BOT_TOKEN_RE.fullmatch(token):
+            raise ValueError("TELEGRAM_BOT_TOKEN does not look like a BotFather token")
+        if self.webapp_url is not None:
+            self.webapp_url = self.webapp_url.strip() or None
+        if self.webapp_url and not self.webapp_url.startswith(("https://", "http://")):
+            raise ValueError("WEBAPP_URL must be an absolute http(s) URL")
+        if self.is_production and self.webapp_url and not self.webapp_url.startswith("https://"):
+            raise ValueError("WEBAPP_URL must use https in production")
+        if self.bot_mode == "webhook":
+            base = self.bot_webhook_base_url or ""
+            if not base.startswith("https://"):
+                raise ValueError("BOT_MODE=webhook needs an https BOT_WEBHOOK_BASE_URL")
+            secret = self.bot_webhook_secret.get_secret_value() if self.bot_webhook_secret else ""
+            if not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", secret):
+                raise ValueError("BOT_WEBHOOK_SECRET must be 32-256 chars of [A-Za-z0-9_-]")
         return self
 
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def webapp_buttons_enabled(self) -> bool:
+        """Telegram rejects web_app buttons whose URL is not HTTPS."""
+        return bool(self.webapp_url and self.webapp_url.startswith("https://"))
 
 
 @lru_cache

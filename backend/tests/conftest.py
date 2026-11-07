@@ -18,8 +18,12 @@ os.environ.setdefault(
     ),
 )
 os.environ.setdefault("ENVIRONMENT", "test")
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "123456:TEST-TOKEN")
+os.environ["TELEGRAM_BOT_TOKEN"] = "123456:TEST-TOKEN"
 os.environ.setdefault("OTP_SECRET", "test-otp-secret-0123456789-abcdefghijklmnop")
+# Never talk to Telegram from tests, whatever the developer's backend/.env says.
+os.environ["BOT_MODE"] = "off"
+os.environ["OTP_DELIVERY"] = "telegram"
+os.environ["WEBAPP_URL"] = "https://app.test.example"
 
 import secrets
 import uuid

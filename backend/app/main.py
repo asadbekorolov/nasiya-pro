@@ -11,10 +11,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.api.v1.router import api_router
+from app.bot.dispatcher import BotRuntime
 from app.core.config import get_settings
 from app.core.exceptions import DomainError
 from app.core.logging import configure_logging
-from app.db.session import dispose_engine
+from app.db.session import dispose_engine, get_sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,21 @@ def _error(
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    yield
-    await dispose_engine()
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Starts the Telegram bot next to the API and shuts both down cleanly."""
+    runtime = BotRuntime(get_settings(), get_sessionmaker())
+    app.state.bot_runtime = runtime
+    try:
+        await runtime.start()
+    except Exception:
+        # Telegram being unreachable must not take the API down; OTP sends will
+        # report 502 until it recovers.
+        logger.exception("telegram bot failed to start; API continues without updates")
+    try:
+        yield
+    finally:
+        await runtime.stop()
+        await dispose_engine()
 
 
 def create_app() -> FastAPI:

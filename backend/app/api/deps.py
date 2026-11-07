@@ -27,13 +27,20 @@ from fastapi import Depends, Header, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.dispatcher import BotRuntime
+from app.bot.notifications import BotNotifier
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AuthenticationError, NotFoundError, PermissionDeniedError
 from app.core.telegram_auth import TelegramUserDep, TelegramWebAppUser
-from app.db.session import get_db_session
+from app.db.session import get_db_session, get_sessionmaker
 from app.models import Agent, AgentStoreAssignment, Store, Wholesaler
 from app.services.ledger_service import LedgerService
-from app.services.notifications import LogOtpNotifier, OtpNotifier, TelegramOtpNotifier
+from app.services.notifications import (
+    EventNotifier,
+    LogOtpNotifier,
+    NullEventNotifier,
+    OtpNotifier,
+)
 from app.services.order_service import OrderService
 from app.services.otp_service import OtpService
 from app.services.pdf_service import ActSverkaPdfService
@@ -223,10 +230,25 @@ def get_pdf_service(session: SessionDep, settings: SettingsDep) -> ActSverkaPdfS
     return ActSverkaPdfService(session, settings=settings)
 
 
-def get_otp_notifier(settings: SettingsDep) -> OtpNotifier:
+def get_bot_runtime(request: Request) -> BotRuntime | None:
+    """Set by the FastAPI lifespan (`app.main`); absent when the lifespan did not run."""
+    return getattr(request.app.state, "bot_runtime", None)
+
+
+BotRuntimeDep = Annotated[BotRuntime | None, Depends(get_bot_runtime)]
+
+
+def get_otp_notifier(settings: SettingsDep, runtime: BotRuntimeDep) -> OtpNotifier:
     if settings.otp_delivery == "log":
         return LogOtpNotifier()
-    return TelegramOtpNotifier(settings.telegram_bot_token.get_secret_value())
+    if runtime is not None:
+        return runtime.notifier
+    # No running bot: sending fails loudly (502) instead of silently losing the code.
+    return BotNotifier(None, get_sessionmaker(), settings)
+
+
+def get_event_notifier(runtime: BotRuntimeDep) -> EventNotifier:
+    return runtime.notifier if runtime is not None else NullEventNotifier()
 
 
 LedgerServiceDep = Annotated[LedgerService, Depends(get_ledger_service)]
@@ -234,3 +256,4 @@ OrderServiceDep = Annotated[OrderService, Depends(get_order_service)]
 OtpServiceDep = Annotated[OtpService, Depends(get_otp_service)]
 PdfServiceDep = Annotated[ActSverkaPdfService, Depends(get_pdf_service)]
 OtpNotifierDep = Annotated[OtpNotifier, Depends(get_otp_notifier)]
+EventNotifierDep = Annotated[EventNotifier, Depends(get_event_notifier)]

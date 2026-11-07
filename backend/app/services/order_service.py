@@ -133,6 +133,32 @@ class OrderService:
     ) -> Order:
         """Create an order with price snapshots. `submit=False` keeps it as a draft.
         Nothing is reserved yet: stock is held only when the wholesaler approves."""
+        order, _ = await self.place_order(
+            wholesaler_id=wholesaler_id,
+            store_id=store_id,
+            lines=lines,
+            agent_id=agent_id,
+            note=note,
+            submit=submit,
+            idempotency_key=idempotency_key,
+            actor_telegram_user_id=actor_telegram_user_id,
+        )
+        return order
+
+    async def place_order(
+        self,
+        *,
+        wholesaler_id: uuid.UUID,
+        store_id: uuid.UUID,
+        lines: Sequence[OrderLine],
+        agent_id: uuid.UUID | None = None,
+        note: str | None = None,
+        submit: bool = True,
+        idempotency_key: str | None = None,
+        actor_telegram_user_id: int | None = None,
+    ) -> tuple[Order, bool]:
+        """Like `create_order`, but also reports whether the order is new (False for an
+        idempotent replay), so callers notify only once."""
         normalized = self._normalize_lines(lines)
 
         order_id: uuid.UUID | None = None
@@ -204,9 +230,10 @@ class OrderService:
                 await self.session.flush()
                 order_id = order.id
 
+        assert order_id is not None
         if created:
             logger.info("order created", extra={"order_id": str(order_id)})
-        return await self.get_order(wholesaler_id=wholesaler_id, order_id=order_id)
+        return await self.get_order(wholesaler_id=wholesaler_id, order_id=order_id), created
 
     # ==================================================================== transitions ==
 

@@ -5,11 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.api.deps import (
+    EventNotifierDep,
     LedgerServiceDep,
     OrderServiceDep,
     PdfServiceDep,
@@ -122,10 +123,14 @@ async def store_orders(
 
 @router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
 async def store_create_order(
-    body: OrderCreate, principal: StoreDep, orders: OrderServiceDep
+    body: OrderCreate,
+    principal: StoreDep,
+    orders: OrderServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> OrderRead:
     assert principal.store_id is not None
-    order = await orders.create_order(
+    order, created = await orders.place_order(
         wholesaler_id=principal.wholesaler_id,
         store_id=principal.store_id,
         lines=[OrderLine(line.product_id, line.quantity) for line in body.lines],
@@ -134,6 +139,8 @@ async def store_create_order(
         idempotency_key=body.idempotency_key,
         actor_telegram_user_id=principal.telegram_user_id,
     )
+    if created and order.status == OrderStatus.PENDING:
+        background.add_task(events.order_submitted, order.id)
     return OrderRead.model_validate(order)
 
 
@@ -149,12 +156,19 @@ async def store_get_order(
 
 @router.post("/orders/{order_id}/submit", response_model=OrderRead)
 async def store_submit_order(
-    order_id: uuid.UUID, principal: StoreDep, orders: OrderServiceDep
+    order_id: uuid.UUID,
+    principal: StoreDep,
+    orders: OrderServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> OrderRead:
-    await orders.get_order(
+    before = await orders.get_order(
         wholesaler_id=principal.wholesaler_id, order_id=order_id, store_id=principal.store_id
     )
+    was_draft = before.status == OrderStatus.DRAFT
     order = await orders.submit_order(wholesaler_id=principal.wholesaler_id, order_id=order_id)
+    if was_draft and order.status == OrderStatus.PENDING:
+        background.add_task(events.order_submitted, order.id)
     return OrderRead.model_validate(order)
 
 

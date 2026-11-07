@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, status
 from sqlalchemy import select
 
 from app.api.deps import (
     AgentDep,
+    EventNotifierDep,
     LedgerServiceDep,
     OrderServiceDep,
     OtpNotifierDep,
@@ -115,10 +116,15 @@ async def agent_orders(
 
 @router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
 async def agent_create_order(
-    body: AgentOrderCreate, principal: AgentDep, session: SessionDep, orders: OrderServiceDep
+    body: AgentOrderCreate,
+    principal: AgentDep,
+    session: SessionDep,
+    orders: OrderServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> OrderRead:
     await ensure_agent_serves_store(session, principal, body.store_id)
-    order = await orders.create_order(
+    order, created = await orders.place_order(
         wholesaler_id=principal.wholesaler_id,
         store_id=body.store_id,
         agent_id=principal.agent_id,
@@ -128,12 +134,19 @@ async def agent_create_order(
         idempotency_key=body.idempotency_key,
         actor_telegram_user_id=principal.telegram_user_id,
     )
+    if created and order.status == OrderStatus.PENDING:
+        background.add_task(events.order_submitted, order.id)
     return OrderRead.model_validate(order)
 
 
 @router.post("/orders/{order_id}/deliver", response_model=DeliveryResponse)
 async def agent_deliver_order(
-    order_id: uuid.UUID, principal: AgentDep, session: SessionDep, orders: OrderServiceDep
+    order_id: uuid.UUID,
+    principal: AgentDep,
+    session: SessionDep,
+    orders: OrderServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> DeliveryResponse:
     """The agent hands the goods over: stock is written off and the debt is billed."""
     current = await orders.get_order(wholesaler_id=principal.wholesaler_id, order_id=order_id)
@@ -143,6 +156,8 @@ async def agent_deliver_order(
         order_id=order_id,
         actor_telegram_user_id=principal.telegram_user_id,
     )
+    if result.charge.created:
+        background.add_task(events.order_delivered, order_id)
     return DeliveryResponse(
         order=OrderRead.model_validate(result.order), charge=charge_response(result.charge)
     )
@@ -202,6 +217,8 @@ async def agent_verify_otp(
     principal: AgentDep,
     otp_service: OtpServiceDep,
     ledger: LedgerServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> PaymentResponse:
     """The agent enters the code from the store; on success the payment is posted and
     open debts are closed FIFO. Safe to retry."""
@@ -223,6 +240,8 @@ async def agent_verify_otp(
         description=body.description,
         actor_telegram_user_id=principal.telegram_user_id,
     )
+    if result.created:
+        background.add_task(events.payment_received, result.transaction.id)
     return payment_response(result)
 
 

@@ -6,13 +6,14 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.api.deps import (
     AdminDep,
+    EventNotifierDep,
     LedgerServiceDep,
     OrderServiceDep,
     PdfServiceDep,
@@ -119,13 +120,19 @@ async def ship_order(order_id: uuid.UUID, admin: AdminDep, orders: OrderServiceD
 
 @router.post("/orders/{order_id}/deliver", response_model=DeliveryResponse)
 async def deliver_order(
-    order_id: uuid.UUID, admin: AdminDep, orders: OrderServiceDep
+    order_id: uuid.UUID,
+    admin: AdminDep,
+    orders: OrderServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> DeliveryResponse:
     result = await orders.deliver_order(
         wholesaler_id=admin.wholesaler_id,
         order_id=order_id,
         actor_telegram_user_id=admin.telegram_user_id,
     )
+    if result.charge.created:
+        background.add_task(events.order_delivered, order_id)
     return DeliveryResponse(
         order=OrderRead.model_validate(result.order), charge=charge_response(result.charge)
     )
@@ -150,7 +157,12 @@ async def cancel_order(
     status_code=status.HTTP_201_CREATED,
 )
 async def record_payment(
-    store_id: uuid.UUID, body: PaymentCreate, admin: AdminDep, ledger: LedgerServiceDep
+    store_id: uuid.UUID,
+    body: PaymentCreate,
+    admin: AdminDep,
+    ledger: LedgerServiceDep,
+    events: EventNotifierDep,
+    background: BackgroundTasks,
 ) -> PaymentResponse:
     """Money received directly by the wholesaler (bank transfer, cash at the warehouse)."""
     result = await ledger.record_payment(
@@ -162,6 +174,8 @@ async def record_payment(
         description=body.description,
         actor_telegram_user_id=admin.telegram_user_id,
     )
+    if result.created:
+        background.add_task(events.payment_received, result.transaction.id)
     return payment_response(result)
 
 

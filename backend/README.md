@@ -77,6 +77,48 @@ bo'lsa ham chalkashlik yo'q. Bir nechta ulgurjichida ro'yxatdan o'tgan foydalanu
 `X-Wholesaler-Id` sarlavhasini yuboradi. Agent faqat o'ziga biriktirilgan do'konlar
 bilan ishlaydi (`agent_store_assignments`); boshqalari 404 qaytaradi.
 
+## Telegram bot (`app/bot/`)
+
+aiogram 3, FastAPI `lifespan` ichida ishga tushadi va to'xtaganda polling hamda HTTP sessiya
+toza yopiladi.
+
+| Fayl | Vazifasi |
+|---|---|
+| `dispatcher.py` | Bot/Dispatcher yaratish, `BotRuntime`: polling, webhook, to'xtatish |
+| `routers/start.py` | `/start` (rol bo'yicha salomlashuv + Mini App tugmasi), telefon orqali ro'yxatdan o'tish |
+| `keyboards.py` | Mini App (`web_app`) va kontakt tugmalari |
+| `messages.py` | Barcha matnlar (HTML, foydalanuvchi ma'lumotlari ekranlangan) |
+| `notifications.py` | `BotNotifier`: OTP kodi va push xabarlar |
+
+**Rejimlar (`BOT_MODE`):** `off` (testlar, qo'shimcha API workerlar — xabar *yuborish* baribir
+ishlaydi), `polling` (development, faqat **bitta** jarayonda), `webhook` (production:
+`BOT_WEBHOOK_BASE_URL` + `BOT_WEBHOOK_SECRET`, `POST /api/v1/telegram/webhook`).
+
+**`WEBAPP_URL`** HTTPS bo'lishi shart — Telegram `http://` Mini App tugmalarini rad etadi.
+Lokal sinash uchun tunnel (`cloudflared tunnel --url http://localhost:5173`) yoki deploy
+qilingan frontend manzilini bering. URL bo'lmasa bot ishlaydi, faqat tugmalarsiz.
+
+**Ro'yxatdan o'tish:** foydalanuvchi o'z kontaktini ulashadi; faqat `contact.user_id ==
+from_user.id` bo'lsa (Telegram tasdiqlagan o'z raqami) qabul qilinadi. Raqam do'kon
+kartasidagi raqamga mos kelsa va do'kon hali hech kimga ulanmagan bo'lsa, `telegram_user_id`
+bog'lanadi. Boshqa akkauntga ulangan do'kon hech qachon qayta bog'lanmaydi.
+
+**Xabarnomalar:**
+
+| Hodisa | Kimga | Qachon |
+|---|---|---|
+| Naqd pul OTP | do'konchi | sinxron; yetkazilmasa API 502 va kod bekor qilinadi |
+| Yangi buyurtma | ulgurjichi + do'konga biriktirilgan agentlar (buyurtma bergandan tashqari) | tranzaksiya commit bo'lgach, fonda |
+| Buyurtma yetkazildi | do'konchi (yangi qarz balansi bilan) | commit'dan keyin, fonda |
+| To'lov qabul qilindi | do'konchi (elektron kvitansiya) | commit'dan keyin, fonda |
+
+Push xabarlar xatoga chidamli: bot bloklangan, Telegram ishlamayotgan yoki flood-limit
+bo'lsa log yoziladi, biznes operatsiyasi esa hech qachon bekor bo'lmaydi. Idempotent
+qayta so'rovlar xabarni ikkinchi marta yubormaydi.
+
+**Token xavfsizligi:** `TELEGRAM_BOT_TOKEN` faqat `.env`da (git'ga tushmaydi). Token
+oshkor bo'lsa, BotFather'da `/revoke` qiling va yangisini `.env`ga yozing.
+
 ## Buyurtma va ombor
 
 ```
