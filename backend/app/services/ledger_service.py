@@ -68,6 +68,7 @@ from app.models import (
     Wholesaler,
 )
 from app.services.ledger_hash import compute_entry_hash
+from app.services.locks import lock_store
 
 logger = logging.getLogger(__name__)
 
@@ -550,6 +551,36 @@ class LedgerService:
         ]
         return sorted(report, key=lambda r: r.total, reverse=True)
 
+    async def get_last_payment(self, *, store_id: uuid.UUID) -> LedgerTransaction | None:
+        tx: LedgerTransaction | None = await self.session.scalar(
+            select(LedgerTransaction)
+            .where(
+                LedgerTransaction.store_id == store_id,
+                LedgerTransaction.type == TransactionType.PAYMENT,
+            )
+            .order_by(LedgerTransaction.sequence_no.desc())
+            .limit(1)
+        )
+        return tx
+
+    async def get_overdue_amounts(
+        self, *, wholesaler_id: uuid.UUID, store_ids: Sequence[uuid.UUID], as_of: date
+    ) -> dict[uuid.UUID, Decimal]:
+        """Open debt past its due date, per store (missing store => 0)."""
+        if not store_ids:
+            return {}
+        rows = await self.session.execute(
+            select(Debt.store_id, func.sum(Debt.remaining_amount))
+            .where(
+                Debt.wholesaler_id == wholesaler_id,
+                Debt.store_id.in_(list(store_ids)),
+                Debt.is_closed.is_(False),
+                Debt.due_date < as_of,
+            )
+            .group_by(Debt.store_id)
+        )
+        return {sid: total for sid, total in rows.all()}
+
     async def verify_chain(
         self, *, wholesaler_id: uuid.UUID, store_id: uuid.UUID
     ) -> ChainVerification:
@@ -600,15 +631,7 @@ class LedgerService:
         return now
 
     async def _lock_store(self, wholesaler_id: uuid.UUID, store_id: uuid.UUID) -> Store:
-        store = await self.session.scalar(
-            select(Store)
-            .where(Store.id == store_id, Store.wholesaler_id == wholesaler_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if store is None:
-            raise NotFoundError("Store not found", store_id=str(store_id))
-        return store
+        return await lock_store(self.session, wholesaler_id, store_id)
 
     async def get_store(self, wholesaler_id: uuid.UUID, store_id: uuid.UUID) -> Store:
         store = await self.session.scalar(

@@ -41,6 +41,23 @@ class InvalidOrderStateError(DomainError):
     status_code = 409
 
 
+class InvalidOrderError(DomainError):
+    """The order request itself is malformed (empty, duplicate lines, bad quantity)."""
+
+    code = "invalid_order"
+    status_code = 422
+
+
+class ProductUnavailableError(DomainError):
+    code = "product_unavailable"
+    status_code = 409
+
+
+class InsufficientStockError(DomainError):
+    code = "insufficient_stock"
+    status_code = 409
+
+
 class InactiveEntityError(DomainError):
     code = "inactive_entity"
     status_code = 409

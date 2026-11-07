@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.models.enums import DebtSource, OtpStatus, PaymentMethod, TransactionType
 from app.schemas.common import IdempotencyKey, Money, ORMModel, PositiveMoney
+from app.services.ledger_service import AdjustmentResult, ChargeResult, PaymentResult
 
 # --- Read models -----------------------------------------------------------------------
 
@@ -165,3 +166,40 @@ class StoreBalanceResponse(BaseModel):
     current_debt: Money
     credit_limit: Money
     available_credit: Money
+
+
+class CollectCashVerifyRequest(OtpConfirmRequest):
+    verification_id: uuid.UUID
+
+
+# --- mappers (service results -> response models) ------------------------------------
+
+
+def charge_response(r: ChargeResult) -> ChargeResponse:
+    return ChargeResponse(
+        transaction=TransactionRead.model_validate(r.transaction),
+        debt=DebtRead.model_validate(r.debt),
+        store_balance=r.store_balance,
+        advance_applied=r.advance_applied,
+        created=r.created,
+    )
+
+
+def payment_response(r: PaymentResult) -> PaymentResponse:
+    return PaymentResponse(
+        transaction=TransactionRead.model_validate(r.transaction),
+        allocations=[AllocationRead.model_validate(a) for a in r.allocations],
+        store_balance=r.store_balance,
+        advance_amount=r.advance_amount,
+        created=r.created,
+    )
+
+
+def adjustment_response(r: AdjustmentResult) -> AdjustmentResponse:
+    return AdjustmentResponse(
+        transaction=TransactionRead.model_validate(r.transaction),
+        debt=DebtRead.model_validate(r.debt) if r.debt else None,
+        allocations=[AllocationRead.model_validate(a) for a in r.allocations],
+        store_balance=r.store_balance,
+        created=r.created,
+    )

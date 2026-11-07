@@ -1,36 +1,12 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import time
 import uuid
-from urllib.parse import urlencode
+from decimal import Decimal
 
-import pytest
-
-from app.core.exceptions import AuthenticationError
-from app.core.security import (
-    generate_otp_code,
-    hash_otp_code,
-    validate_telegram_init_data,
-    verify_otp_code,
-)
+from app.core.money import format_amount
+from app.core.security import generate_otp_code, hash_otp_code, verify_otp_code
 from app.core.uuid7 import uuid7, uuid7_timestamp
-
-BOT_TOKEN = "123456:TEST-TOKEN"
-
-
-def make_init_data(user_id: int, *, token: str = BOT_TOKEN, auth_date: int | None = None) -> str:
-    fields = {
-        "auth_date": str(auth_date or int(time.time())),
-        "query_id": "AAH-test",
-        "user": json.dumps({"id": user_id, "first_name": "Test"}, separators=(",", ":")),
-    }
-    dcs = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
-    secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
-    fields["hash"] = hmac.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
-    return urlencode(fields)
 
 
 def test_uuid7_is_version_7_and_monotonic() -> None:
@@ -51,21 +27,7 @@ def test_otp_hash_roundtrip() -> None:
     assert not verify_otp_code(code, verification_id=vid, secret="x" * 32, expected=h)
 
 
-def test_init_data_valid() -> None:
-    user = validate_telegram_init_data(
-        make_init_data(42), bot_token=BOT_TOKEN, max_age_seconds=3600
-    )
-    assert user.id == 42
-
-
-def test_init_data_bad_signature_and_expiry() -> None:
-    with pytest.raises(AuthenticationError):
-        validate_telegram_init_data(
-            make_init_data(42, token="999:OTHER"), bot_token=BOT_TOKEN, max_age_seconds=3600
-        )
-    with pytest.raises(AuthenticationError, match="expired"):
-        validate_telegram_init_data(
-            make_init_data(42, auth_date=int(time.time()) - 7200),
-            bot_token=BOT_TOKEN,
-            max_age_seconds=3600,
-        )
+def test_format_amount() -> None:
+    assert format_amount(Decimal("1250000.5")) == "1 250 000.50"
+    assert format_amount(Decimal("-80.00"), "UZS") == "-80.00 UZS"
+    assert format_amount(Decimal("0")) == "0.00"

@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -38,6 +39,7 @@ from app.db.base import Base, model_to_dict
 from app.db.session import build_engine, build_sessionmaker
 from app.models import (
     Agent,
+    AgentStoreAssignment,
     Order,
     OrderItem,
     OrderStatus,
@@ -105,7 +107,16 @@ def next_tg_id() -> int:
 async def world(session: AsyncSession) -> World:
     async with session.begin():
         w = Wholesaler(
-            name="Test Optom", owner_telegram_user_id=next_tg_id(), timezone="Asia/Tashkent"
+            name="Test Optom",
+            legal_name='"Test Optom Savdo" MChJ',
+            tin="301234567",
+            address="Toshkent sh., Chilonzor t., 1-uy",
+            phone="+998901234567",
+            bank_name="Kapitalbank",
+            bank_account="20208000900123456001",
+            bank_mfo="01158",
+            owner_telegram_user_id=next_tg_id(),
+            timezone="Asia/Tashkent",
         )
         session.add(w)
         await session.flush()
@@ -121,8 +132,11 @@ async def world(session: AsyncSession) -> World:
             sku=f"SKU-{uuid.uuid4().hex[:8]}",
             name="Un 50kg",
             price=Decimal("100.00"),
+            stock_quantity=Decimal("1000.000"),
         )
         session.add_all([store, agent, product])
+        await session.flush()
+        session.add(AgentStoreAssignment(wholesaler_id=w.id, agent_id=agent.id, store_id=store.id))
         await session.flush()
         world = World(_snapshot(w), _snapshot(store), _snapshot(agent), _snapshot(product))
     return world
@@ -133,10 +147,15 @@ def make_order(session: AsyncSession, world: World) -> Callable[..., Awaitable[O
     async def _make(
         total: Decimal | str,
         *,
-        status: OrderStatus = OrderStatus.CONFIRMED,
+        status: OrderStatus = OrderStatus.APPROVED,
         store_id: uuid.UUID | None = None,
     ) -> Order:
+        """Ledger-level fixture: inserts an order directly in `status` (bypassing
+        OrderService, so no stock is reserved)."""
         total = Decimal(total)
+        now = datetime.now(UTC)
+        submitted = status not in (OrderStatus.DRAFT, OrderStatus.CANCELLED)
+        approved = status in (OrderStatus.APPROVED, OrderStatus.SHIPPED, OrderStatus.DELIVERED)
         async with session.begin():
             order = Order(
                 wholesaler_id=world.wholesaler.id,
@@ -144,6 +163,9 @@ def make_order(session: AsyncSession, world: World) -> Callable[..., Awaitable[O
                 agent_id=world.agent.id,
                 status=status,
                 total_amount=total,
+                submitted_at=now if submitted else None,
+                approved_at=now if approved else None,
+                cancelled_at=now if status == OrderStatus.CANCELLED else None,
             )
             session.add(order)
             await session.flush()
@@ -171,3 +193,43 @@ async def end_read(session: AsyncSession) -> None:
     close the implicit transaction, so the next service call starts a fresh one."""
     session.expunge_all()
     await session.rollback()
+
+
+# --- HTTP client -------------------------------------------------------------------------
+
+
+class RecordingNotifier:
+    """Replaces Telegram delivery of payment OTP codes."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+
+    async def send_payment_otp(self, **kwargs: object) -> int:
+        self.sent.append(kwargs)
+        return 777
+
+
+@pytest.fixture
+def notifier() -> RecordingNotifier:
+    return RecordingNotifier()
+
+
+@pytest.fixture
+async def client(
+    sessionmaker: async_sessionmaker[AsyncSession], notifier: RecordingNotifier
+) -> AsyncIterator[httpx.AsyncClient]:
+    from app.api.deps import get_otp_notifier
+    from app.db.session import get_db_session
+    from app.main import create_app
+
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with sessionmaker() as s:
+            yield s
+
+    app.dependency_overrides[get_db_session] = _session
+    app.dependency_overrides[get_otp_notifier] = lambda: notifier
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test/api/v1") as c:
+        yield c

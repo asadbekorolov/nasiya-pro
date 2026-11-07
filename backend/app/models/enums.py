@@ -4,16 +4,26 @@ from enum import StrEnum
 
 
 class OrderStatus(StrEnum):
+    """draft -> pending -> approved -> (shipped) -> delivered;  any non-final -> cancelled.
+
+    Stock is reserved on `approved` and written off on `delivered`.
+    """
+
     DRAFT = "draft"
     PENDING = "pending"
-    CONFIRMED = "confirmed"
+    APPROVED = "approved"
     SHIPPED = "shipped"
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
 
 
 DELIVERABLE_ORDER_STATUSES: frozenset[OrderStatus] = frozenset(
-    {OrderStatus.CONFIRMED, OrderStatus.SHIPPED}
+    {OrderStatus.APPROVED, OrderStatus.SHIPPED}
+)
+# Statuses that hold a stock reservation.
+RESERVING_ORDER_STATUSES: frozenset[OrderStatus] = DELIVERABLE_ORDER_STATUSES
+CANCELLABLE_ORDER_STATUSES: frozenset[OrderStatus] = frozenset(
+    {OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.APPROVED, OrderStatus.SHIPPED}
 )
 
 

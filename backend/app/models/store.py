@@ -16,10 +16,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.db.base import Base, LegalDetailsMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
 
-class Store(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class Store(UUIDPrimaryKeyMixin, LegalDetailsMixin, TimestampMixin, Base):
     """Retail shop buying on credit (nasiya) from a wholesaler.
 
     `current_debt` is a denormalised running balance owned exclusively by

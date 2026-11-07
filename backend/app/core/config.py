@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     otp_code_length: int = Field(default=4, ge=4, le=8)
     otp_required_for_agent_payments: bool = True
 
+    # --- Documents (Akt-sverka PDF) ---
+    # A Unicode TTF (Cyrillic + Uzbek Latin). If unset, common system locations are
+    # searched (DejaVu on Linux: `apt-get install fonts-dejavu-core`, Arial on Windows).
+    pdf_font_regular_path: str | None = None
+    pdf_font_bold_path: str | None = None
+
     # --- Business defaults ---
     default_currency: str = Field(default="UZS", min_length=3, max_length=3)
     default_timezone: str = "Asia/Tashkent"

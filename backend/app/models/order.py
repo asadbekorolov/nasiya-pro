@@ -39,8 +39,15 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     total_amount: Mapped[Decimal] = mapped_column(default=Decimal("0.00"), server_default="0")
     note: Mapped[str | None] = mapped_column(Text)
+    cancel_reason: Mapped[str | None] = mapped_column(Text)
 
-    confirmed_at: Mapped[datetime | None]
+    # Who placed the order (store owner or agent) and a client-side retry key.
+    created_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+
+    submitted_at: Mapped[datetime | None]
+    approved_at: Mapped[datetime | None]
+    shipped_at: Mapped[datetime | None]
     delivered_at: Mapped[datetime | None]
     cancelled_at: Mapped[datetime | None]
 
@@ -48,11 +55,20 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="order",
         cascade="all, delete-orphan",
         lazy="raise",
-        order_by="OrderItem.created_at",
+        order_by="OrderItem.id",
     )
 
     __table_args__ = (
+        UniqueConstraint("wholesaler_id", "idempotency_key"),
         CheckConstraint("total_amount >= 0", name="total_non_negative"),
+        CheckConstraint(
+            "status IN ('draft', 'cancelled') OR submitted_at IS NOT NULL",
+            name="submitted_at_matches",
+        ),
+        CheckConstraint(
+            "status NOT IN ('approved', 'shipped', 'delivered') OR approved_at IS NOT NULL",
+            name="approved_at_matches",
+        ),
         CheckConstraint(
             "(status = 'delivered') = (delivered_at IS NOT NULL)", name="delivered_at_matches"
         ),

@@ -9,9 +9,12 @@ from app.db.ddl import (
     create_append_only_triggers,
 )
 from app.models.agent import Agent
+from app.models.assignment import AgentStoreAssignment
 from app.models.debt import Debt, DebtAllocation
 from app.models.enums import (
+    CANCELLABLE_ORDER_STATUSES,
     DELIVERABLE_ORDER_STATUSES,
+    RESERVING_ORDER_STATUSES,
     DebtSource,
     OrderStatus,
     OtpStatus,
@@ -39,8 +42,11 @@ for _table_name in APPEND_ONLY_TABLES:
         event.listen(_table, "after_create", DDL(_stmt))  # type: ignore[no-untyped-call]
 
 __all__ = [
+    "CANCELLABLE_ORDER_STATUSES",
     "DELIVERABLE_ORDER_STATUSES",
+    "RESERVING_ORDER_STATUSES",
     "Agent",
+    "AgentStoreAssignment",
     "Base",
     "Debt",
     "DebtAllocation",

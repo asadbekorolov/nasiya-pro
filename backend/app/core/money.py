@@ -37,6 +37,13 @@ def to_positive_money(value: Decimal | int | str) -> Decimal:
     return amount
 
 
+def format_amount(value: Decimal, currency: str | None = None) -> str:
+    """Human format used on documents: "1 250 000.00 UZS" (no float conversion)."""
+    sign = "-" if value < 0 else ""
+    text = f"{abs(value).quantize(CENT):,.2f}".replace(",", " ")
+    return f"{sign}{text}" + (f" {currency}" if currency else "")
+
+
 def round_money(value: Decimal) -> Decimal:
     """Round a computed value (e.g. price * quantity) to cents."""
     return value.quantize(CENT, rounding=ROUND_HALF_UP)

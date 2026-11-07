@@ -8,7 +8,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Date, DateTime, MetaData, Numeric, func
+from sqlalchemy import Date, DateTime, MetaData, Numeric, String, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
@@ -74,6 +74,16 @@ class TimestampMixin(CreatedAtMixin):
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class LegalDetailsMixin:
+    """Company requisites printed on official documents (Akt-sverka, invoices)."""
+
+    legal_name: Mapped[str | None] = mapped_column(String(300))
+    tin: Mapped[str | None] = mapped_column(String(20))  # STIR / INN
+    bank_name: Mapped[str | None] = mapped_column(String(200))
+    bank_account: Mapped[str | None] = mapped_column(String(34))  # hisob raqami
+    bank_mfo: Mapped[str | None] = mapped_column(String(10))  # MFO / BIK
 
 
 def model_to_dict(obj: Any) -> dict[str, Any]:
