@@ -1,5 +1,5 @@
 import { AlertTriangle, Loader2, Minus, Plus, RefreshCw } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { haptic } from "@/telegram/twa";
 
@@ -204,15 +204,20 @@ export function BottomTabs<T extends string>({
   tabs,
   active,
   onChange,
+  className,
 }: {
   tabs: TabItem<T>[];
   active: T;
   onChange: (id: T) => void;
+  className?: string;
 }) {
   return (
     <nav
       aria-label="Bo'limlar"
-      className="safe-bottom sticky bottom-0 z-20 mt-auto border-t border-tg-separator bg-tg-bg/95 backdrop-blur"
+      className={cx(
+        "safe-bottom sticky bottom-0 z-20 mt-auto border-t border-tg-separator bg-tg-bg/95 backdrop-blur",
+        className,
+      )}
     >
       <ul className="mx-auto flex max-w-lg">
         {tabs.map((tab) => {
@@ -273,12 +278,27 @@ export function Sheet({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center" role="dialog" aria-modal aria-label={title}>
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center lg:items-center lg:p-6"
+      role="dialog"
+      aria-modal
+      aria-label={title}
+    >
       <button type="button" aria-label="Yopish" className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-3xl bg-tg-bg">
-        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-tg-separator" aria-hidden />
+      {/* Bottom sheet on phones, centred dialog on desktop. */}
+      <div className="relative flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-3xl bg-tg-bg lg:max-h-[80dvh] lg:rounded-3xl lg:pb-2 lg:shadow-2xl">
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-tg-separator lg:hidden" aria-hidden />
         <h2 className="px-4 pt-3 pb-2 text-lg font-bold">{title}</h2>
         <div className="flex-1 overflow-y-auto px-4">{children}</div>
         {footer && <div className="safe-bottom border-t border-tg-separator px-4 pt-3">{footer}</div>}

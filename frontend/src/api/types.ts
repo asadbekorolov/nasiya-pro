@@ -67,8 +67,13 @@ export interface Order {
   status: OrderStatus;
   total_amount: Money;
   note: string | null;
+  cancel_reason?: string | null;
   items: OrderItem[];
   created_at: IsoDateTime;
+  submitted_at?: IsoDateTime | null;
+  approved_at?: IsoDateTime | null;
+  delivered_at?: IsoDateTime | null;
+  cancelled_at?: IsoDateTime | null;
 }
 
 export interface OrderLineIn {
@@ -139,15 +144,63 @@ export interface PaymentResult {
   created: boolean;
 }
 
-export interface AgingRow {
+export type StandardAgingBucket = "current" | "1_30" | "31_60" | "61_90" | "90_plus";
+/** `?scheme=short`: not yet due, 1-15, 16-30 and 30+ days past due. */
+export type ShortAgingBucket = "current" | "1_15" | "16_30" | "30_plus";
+
+export interface AgingRow<B extends string = StandardAgingBucket> {
   store_id: Uuid;
   store_name: string;
-  buckets: Record<"current" | "1_30" | "31_60" | "61_90" | "90_plus", Money>;
+  buckets: Record<B, Money>;
   total: Money;
 }
 
-export interface AgingReport {
+export interface AgingReport<B extends string = StandardAgingBucket> {
   as_of: string;
-  rows: AgingRow[];
+  rows: AgingRow<B>[]; // largest debtor first
   grand_total: Money;
+}
+
+// --- wholesaler dashboard -------------------------------------------------------------------
+
+export interface AdminStore {
+  id: Uuid;
+  name: string;
+  contact_name: string | null;
+  phone: string | null;
+  address: string | null;
+  is_active: boolean;
+  is_linked: boolean;
+  current_debt: Money;
+  credit_limit: Money;
+  available_credit: Money;
+  overdue_amount: Money;
+  pending_orders: number;
+}
+
+export interface DeliveryResult {
+  order: Order;
+  charge: { store_balance: Money; created: boolean };
+}
+
+export interface StockItem {
+  id: Uuid;
+  sku: string | null;
+  name: string;
+  unit: string;
+  price: Money;
+  stock_quantity: Quantity;
+  reserved_quantity: Quantity;
+  available_quantity: Quantity;
+  is_active: boolean;
+  is_low: boolean;
+}
+
+export interface StockReport {
+  threshold: Quantity;
+  total_products: number;
+  low_count: number;
+  out_of_stock_count: number;
+  stock_value: Money;
+  items: StockItem[];
 }

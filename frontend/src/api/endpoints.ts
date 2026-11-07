@@ -1,16 +1,21 @@
 import { apiClient } from "./client";
 import type {
+  AdminStore,
   AgentStore,
   AgingReport,
+  DeliveryResult,
   Me,
   Order,
   OrderLineIn,
+  OrderStatus,
   OtpIssue,
   PaymentMethod,
   PaymentResult,
   Product,
   Role,
+  ShortAgingBucket,
   StatementLink,
+  StockReport,
   StoreMe,
   TransactionPage,
 } from "./types";
@@ -74,4 +79,20 @@ export const agentApi = {
 
 export const adminApi = {
   aging: () => apiClient.get<AgingReport>("admin/aging-report"),
+  agingShort: () => apiClient.get<AgingReport<ShortAgingBucket>>("admin/aging-report", { scheme: "short" }),
+
+  stores: () => apiClient.get<AdminStore[]>("admin/stores"),
+  setCreditLimit: (storeId: string, creditLimit: string) =>
+    apiClient.patch<AdminStore>(`admin/stores/${storeId}/credit-limit`, { credit_limit: creditLimit }),
+
+  orders: (statuses: OrderStatus[], limit = 100) =>
+    apiClient.get<Order[]>("admin/orders", { status: statuses, limit }),
+  /** `enforceCreditLimit: false` is the owner's explicit override of the store's limit. */
+  approveOrder: (orderId: string, enforceCreditLimit = true) =>
+    apiClient.post<Order>(`admin/orders/${orderId}/approve`, { enforce_credit_limit: enforceCreditLimit }),
+  deliverOrder: (orderId: string) => apiClient.post<DeliveryResult>(`admin/orders/${orderId}/deliver`),
+  cancelOrder: (orderId: string, reason?: string) =>
+    apiClient.post<Order>(`admin/orders/${orderId}/cancel`, { reason: reason || undefined }),
+
+  stock: (threshold: string) => apiClient.get<StockReport>("admin/stock", { threshold }),
 };

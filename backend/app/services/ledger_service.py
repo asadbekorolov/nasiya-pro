@@ -74,6 +74,18 @@ logger = logging.getLogger(__name__)
 
 AGING_BUCKETS: tuple[str, ...] = ("current", "1_30", "31_60", "61_90", "90_plus")
 
+# Days-past-due bucketing schemes: (upper bound in days, bucket name); the last bucket
+# takes everything older. "short" is the dashboard view for fast-moving FMCG credit.
+AGING_SCHEMES: dict[str, tuple[tuple[tuple[int, str], ...], str]] = {
+    "standard": (((30, "1_30"), (60, "31_60"), (90, "61_90")), "90_plus"),
+    "short": (((15, "1_15"), (30, "16_30")), "30_plus"),
+}
+
+
+def aging_bucket_names(scheme: str) -> tuple[str, ...]:
+    bounds, overflow = AGING_SCHEMES[scheme]
+    return ("current", *(name for _, name in bounds), overflow)
+
 
 # --- Result objects ------------------------------------------------------------------
 
@@ -516,18 +528,21 @@ class LedgerService:
         wholesaler_id: uuid.UUID,
         as_of: date | None = None,
         store_id: uuid.UUID | None = None,
+        scheme: str = "standard",
     ) -> list[AgingRow]:
-        """Open receivables grouped by days past due:
-        current (not yet due), 1-30, 31-60, 61-90, 90+."""
+        """Open receivables grouped by days past due. `standard`: current (not yet due),
+        1-30, 31-60, 61-90, 90+; `short`: current, 1-15, 16-30, 30+."""
+        if scheme not in AGING_SCHEMES:
+            raise ValueError(f"Unknown aging scheme: {scheme}")
+        bounds, overflow = AGING_SCHEMES[scheme]
+        names_in_order = aging_bucket_names(scheme)
         as_of = as_of or await self.local_today(wholesaler_id)
         as_of_sql = literal(as_of, type_=Date)
         days_overdue = as_of_sql - Debt.due_date
         bucket = case(
             (Debt.due_date >= as_of_sql, "current"),
-            (days_overdue <= 30, "1_30"),
-            (days_overdue <= 60, "31_60"),
-            (days_overdue <= 90, "61_90"),
-            else_="90_plus",
+            *((days_overdue <= limit, name) for limit, name in bounds),
+            else_=overflow,
         ).label("bucket")
 
         stmt = (
@@ -544,7 +559,7 @@ class LedgerService:
         buckets: dict[uuid.UUID, dict[str, Decimal]] = {}
         for sid, name, bucket_name, total in (await self.session.execute(stmt)).all():
             names[sid] = name
-            buckets.setdefault(sid, dict.fromkeys(AGING_BUCKETS, ZERO))[bucket_name] += total
+            buckets.setdefault(sid, dict.fromkeys(names_in_order, ZERO))[bucket_name] += total
         report = [
             AgingRow(store_id=sid, store_name=names[sid], buckets=b, total=sum(b.values(), ZERO))
             for sid, b in buckets.items()

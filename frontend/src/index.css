@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* `dark:` follows the Telegram / app theme (data-theme), not only the OS setting. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /*
  * Telegram injects --tg-theme-* variables (and we re-apply them from themeParams).
  * The fallbacks below are only used in a normal browser during development.

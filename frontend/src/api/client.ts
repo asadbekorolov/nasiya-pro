@@ -82,13 +82,16 @@ const http = ky.create({
   },
 });
 
-type Query = Record<string, string | number | boolean | undefined | null>;
+type Scalar = string | number | boolean;
+type Query = Record<string, Scalar | readonly Scalar[] | undefined | null>;
 
-function searchParams(query?: Query): Record<string, string> | undefined {
+/** Arrays become repeated keys (`status=pending&status=approved`), as FastAPI expects. */
+function searchParams(query?: Query): URLSearchParams | undefined {
   if (!query) return undefined;
-  const out: Record<string, string> = {};
+  const out = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== null && value !== "") out[key] = String(value);
+    if (value === undefined || value === null || value === "") continue;
+    for (const item of Array.isArray(value) ? value : [value]) out.append(key, String(item));
   }
   return out;
 }
@@ -110,6 +113,8 @@ export const apiClient = {
         .post(path, { json: body ?? {}, searchParams: searchParams(query), retry: 0 })
         .json<T>(),
     ),
+  patch: <T>(path: string, body: unknown) =>
+    run(() => http.patch(path, { json: body, retry: 0 }).json<T>()),
   blob: (path: string, query?: Query) =>
     run(() => http.get(path, { searchParams: searchParams(query), timeout: 60_000 }).blob()),
 };

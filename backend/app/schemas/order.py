@@ -144,3 +144,47 @@ class StatementLinkResponse(BaseModel):
     url: str  # relative to the API origin, e.g. /api/v1/files/statements/<token>
     filename: str
     expires_at: datetime
+
+
+# --- admin dashboard -----------------------------------------------------------------------
+
+
+class AdminStoreRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    contact_name: str | None
+    phone: str | None
+    address: str | None
+    is_active: bool
+    is_linked: bool  # the owner has opened the bot and shared their phone
+    current_debt: Money
+    credit_limit: Money
+    available_credit: Money
+    overdue_amount: Money
+    pending_orders: int
+
+
+class CreditLimitUpdate(BaseModel):
+    credit_limit: Annotated[Decimal, Field(ge=0, max_digits=15, decimal_places=2)]
+
+
+class StockItemRead(BaseModel):
+    id: uuid.UUID
+    sku: str | None
+    name: str
+    unit: ProductUnit
+    price: Money
+    stock_quantity: Decimal
+    reserved_quantity: Decimal
+    available_quantity: Decimal
+    is_active: bool
+    is_low: bool
+
+
+class StockReport(BaseModel):
+    threshold: Decimal
+    total_products: int
+    low_count: int
+    out_of_stock_count: int
+    stock_value: Money  # on-hand quantity x price of active products
+    items: list[StockItemRead]

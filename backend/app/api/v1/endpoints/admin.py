@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.api.deps import (
@@ -24,7 +26,15 @@ from app.core.exceptions import NotFoundError
 from app.core.money import ZERO
 from app.core.uuid7 import uuid7
 from app.db.uow import atomic
-from app.models import Agent, AgentStoreAssignment, OrderStatus, Store, Wholesaler
+from app.models import (
+    Agent,
+    AgentStoreAssignment,
+    Order,
+    OrderStatus,
+    Product,
+    Store,
+    Wholesaler,
+)
 from app.schemas.ledger import (
     AdjustmentCreate,
     AdjustmentResponse,
@@ -41,12 +51,18 @@ from app.schemas.ledger import (
     payment_response,
 )
 from app.schemas.order import (
+    AdminStoreRead,
     ApproveOrderRequest,
     AssignmentResponse,
     CancelOrderRequest,
+    CreditLimitUpdate,
     DeliveryResponse,
     OrderRead,
+    StockItemRead,
+    StockReport,
 )
+from app.services.ledger_service import LedgerService
+from app.services.locks import lock_store
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -60,11 +76,13 @@ async def aging_report(
     ledger: LedgerServiceDep,
     as_of: date | None = None,
     store_id: uuid.UUID | None = None,
+    scheme: Literal["standard", "short"] = "standard",
 ) -> AgingReportResponse:
-    """Open receivables by days past due: current, 1-30, 31-60, 61-90, 90+."""
+    """Open receivables by days past due. standard: current, 1-30, 31-60, 61-90, 90+;
+    short: current, 1-15, 16-30, 30+. Rows are sorted by total, largest debtor first."""
     effective = as_of or await ledger.local_today(admin.wholesaler_id)
     rows = await ledger.get_aging_report(
-        wholesaler_id=admin.wholesaler_id, as_of=effective, store_id=store_id
+        wholesaler_id=admin.wholesaler_id, as_of=effective, store_id=store_id, scheme=scheme
     )
     return AgingReportResponse(
         as_of=effective,
@@ -146,6 +164,137 @@ async def cancel_order(
         wholesaler_id=admin.wholesaler_id, order_id=order_id, reason=body.reason
     )
     return OrderRead.model_validate(order)
+
+
+# --- stores & credit limits ---------------------------------------------------------------
+
+
+async def _store_rows(
+    session: SessionDep, ledger: LedgerService, wholesaler_id: uuid.UUID, stores: list[Store]
+) -> list[AdminStoreRead]:
+    ids = [s.id for s in stores]
+    today = await ledger.local_today(wholesaler_id)
+    overdue = await ledger.get_overdue_amounts(
+        wholesaler_id=wholesaler_id, store_ids=ids, as_of=today
+    )
+    pending: dict[uuid.UUID, int] = {}
+    if ids:
+        rows = await session.execute(
+            select(Order.store_id, func.count())
+            .where(
+                Order.wholesaler_id == wholesaler_id,
+                Order.store_id.in_(ids),
+                Order.status == OrderStatus.PENDING,
+            )
+            .group_by(Order.store_id)
+        )
+        pending = {sid: n for sid, n in rows.tuples().all()}
+    return [
+        AdminStoreRead(
+            id=s.id,
+            name=s.name,
+            contact_name=s.contact_name,
+            phone=s.phone,
+            address=s.address,
+            is_active=s.is_active,
+            is_linked=s.telegram_user_id is not None,
+            current_debt=s.current_debt,
+            credit_limit=s.credit_limit,
+            available_credit=max(s.credit_limit - max(s.current_debt, ZERO), ZERO),
+            overdue_amount=overdue.get(s.id, ZERO),
+            pending_orders=pending.get(s.id, 0),
+        )
+        for s in stores
+    ]
+
+
+@router.get("/stores", response_model=list[AdminStoreRead])
+async def admin_stores(
+    admin: AdminDep, session: SessionDep, ledger: LedgerServiceDep
+) -> list[AdminStoreRead]:
+    """Every store of the tenant with balance, limit, overdue debt and pending orders."""
+    stores = list(
+        (
+            await session.scalars(
+                select(Store)
+                .where(Store.wholesaler_id == admin.wholesaler_id)
+                .order_by(Store.is_active.desc(), Store.name)
+            )
+        ).all()
+    )
+    return await _store_rows(session, ledger, admin.wholesaler_id, stores)
+
+
+@router.patch("/stores/{store_id}/credit-limit", response_model=AdminStoreRead)
+async def update_credit_limit(
+    store_id: uuid.UUID,
+    body: CreditLimitUpdate,
+    admin: AdminDep,
+    session: SessionDep,
+    ledger: LedgerServiceDep,
+) -> AdminStoreRead:
+    """Set the store's credit limit. A limit below the current debt is allowed: it only
+    blocks new orders until the store pays down."""
+    async with atomic(session):
+        # Same row lock as order approval, so a limit change never races a credit check.
+        store = await lock_store(session, admin.wholesaler_id, store_id)
+        store.credit_limit = body.credit_limit
+        await session.flush()
+    store = await ledger.get_store(admin.wholesaler_id, store_id)
+    (row,) = await _store_rows(session, ledger, admin.wholesaler_id, [store])
+    return row
+
+
+# --- stock -------------------------------------------------------------------------------
+
+
+@router.get("/stock", response_model=StockReport)
+async def stock_report(
+    admin: AdminDep,
+    session: SessionDep,
+    threshold: Decimal = Query(
+        default=Decimal("20"),
+        ge=0,
+        max_digits=15,
+        decimal_places=3,
+        description="sellable quantity at or below this counts as low stock",
+    ),
+    low_only: bool = False,
+    include_inactive: bool = False,
+) -> StockReport:
+    """Warehouse levels: on hand, reserved by approved orders, and sellable."""
+    stmt = select(Product).where(Product.wholesaler_id == admin.wholesaler_id)
+    if not include_inactive:
+        stmt = stmt.where(Product.is_active.is_(True))
+    products = list((await session.scalars(stmt)).all())
+
+    items = [
+        StockItemRead(
+            id=p.id,
+            sku=p.sku,
+            name=p.name,
+            unit=p.unit,
+            price=p.price,
+            stock_quantity=p.stock_quantity,
+            reserved_quantity=p.reserved_quantity,
+            available_quantity=p.available_quantity,
+            is_active=p.is_active,
+            is_low=p.available_quantity <= threshold,
+        )
+        for p in products
+    ]
+    # Most urgent first: low before healthy, then least sellable, then name.
+    items.sort(key=lambda i: (not i.is_low, i.available_quantity, i.name))
+    low = [i for i in items if i.is_low]
+    stock_value = sum((p.stock_quantity * p.price for p in products if p.is_active), ZERO)
+    return StockReport(
+        threshold=threshold,
+        total_products=len(items),
+        low_count=len(low),
+        out_of_stock_count=sum(1 for i in items if i.available_quantity <= 0),
+        stock_value=stock_value.quantize(Decimal("0.01")),
+        items=low if low_only else items,
+    )
 
 
 # --- money -----------------------------------------------------------------------------
