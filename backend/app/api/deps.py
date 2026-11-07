@@ -33,7 +33,7 @@ from app.core.telegram_auth import TelegramUserDep, TelegramWebAppUser
 from app.db.session import get_db_session
 from app.models import Agent, AgentStoreAssignment, Store, Wholesaler
 from app.services.ledger_service import LedgerService
-from app.services.notifications import OtpNotifier, TelegramOtpNotifier
+from app.services.notifications import LogOtpNotifier, OtpNotifier, TelegramOtpNotifier
 from app.services.order_service import OrderService
 from app.services.otp_service import OtpService
 from app.services.pdf_service import ActSverkaPdfService
@@ -224,6 +224,8 @@ def get_pdf_service(session: SessionDep, settings: SettingsDep) -> ActSverkaPdfS
 
 
 def get_otp_notifier(settings: SettingsDep) -> OtpNotifier:
+    if settings.otp_delivery == "log":
+        return LogOtpNotifier()
     return TelegramOtpNotifier(settings.telegram_bot_token.get_secret_value())
 
 

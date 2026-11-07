@@ -551,6 +551,20 @@ class LedgerService:
         ]
         return sorted(report, key=lambda r: r.total, reverse=True)
 
+    async def list_transactions(
+        self, *, store_id: uuid.UUID, limit: int = 30, before_sequence: int | None = None
+    ) -> list[LedgerTransaction]:
+        """Newest first, keyset-paginated on `sequence_no` (stable under inserts)."""
+        stmt = (
+            select(LedgerTransaction)
+            .where(LedgerTransaction.store_id == store_id)
+            .order_by(LedgerTransaction.sequence_no.desc())
+            .limit(min(max(limit, 1), 100))
+        )
+        if before_sequence is not None:
+            stmt = stmt.where(LedgerTransaction.sequence_no < before_sequence)
+        return list((await self.session.scalars(stmt)).all())
+
     async def get_last_payment(self, *, store_id: uuid.UUID) -> LedgerTransaction | None:
         tx: LedgerTransaction | None = await self.session.scalar(
             select(LedgerTransaction)

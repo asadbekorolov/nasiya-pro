@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+/*
+ * Telegram injects --tg-theme-* variables (and we re-apply them from themeParams).
+ * The fallbacks below are only used in a normal browser during development.
+ */
+:root {
+  --fallback-bg: #ffffff;
+  --fallback-secondary-bg: #f1f2f6;
+  --fallback-text: #0f1419;
+  --fallback-hint: #8a8f98;
+  --fallback-link: #2481cc;
+  --fallback-button: #2481cc;
+  --fallback-button-text: #ffffff;
+  --fallback-separator: #e3e5ea;
+  --fallback-destructive: #e5484d;
+}
+
+:root[data-theme="dark"] {
+  --fallback-bg: #1c1d21;
+  --fallback-secondary-bg: #101114;
+  --fallback-text: #f2f3f5;
+  --fallback-hint: #8b909a;
+  --fallback-link: #5aa9f0;
+  --fallback-button: #3a8ee6;
+  --fallback-separator: #2b2d33;
+  --fallback-destructive: #ff6b6b;
+}
+
+@theme inline {
+  --color-tg-bg: var(--tg-theme-bg-color, var(--fallback-bg));
+  --color-tg-secondary: var(--tg-theme-secondary-bg-color, var(--fallback-secondary-bg));
+  --color-tg-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, var(--fallback-bg)));
+  --color-tg-text: var(--tg-theme-text-color, var(--fallback-text));
+  --color-tg-hint: var(--tg-theme-hint-color, var(--fallback-hint));
+  --color-tg-link: var(--tg-theme-link-color, var(--fallback-link));
+  --color-tg-button: var(--tg-theme-button-color, var(--fallback-button));
+  --color-tg-button-text: var(--tg-theme-button-text-color, var(--fallback-button-text));
+  --color-tg-accent: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, var(--fallback-link)));
+  --color-tg-separator: var(--tg-theme-section-separator-color, var(--fallback-separator));
+  --color-tg-destructive: var(--tg-theme-destructive-text-color, var(--fallback-destructive));
+  --color-tg-subtitle: var(--tg-theme-subtitle-text-color, var(--tg-theme-hint-color, var(--fallback-hint)));
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-tg-secondary);
+    color: var(--color-tg-text);
+    font-family:
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: max(
+    env(safe-area-inset-bottom),
+    var(--tg-safe-area-inset-bottom, 0px),
+    0.5rem
+  );
+}

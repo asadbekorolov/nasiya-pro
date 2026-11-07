@@ -37,6 +37,29 @@ class OtpNotifier(Protocol):
         ...
 
 
+class LogOtpNotifier:
+    """Development only: prints the code to the server log instead of Telegram."""
+
+    async def send_payment_otp(
+        self,
+        *,
+        chat_id: int,
+        code: str,
+        amount: Decimal,
+        currency: str,
+        agent_name: str,
+        ttl_seconds: int,
+    ) -> int | None:
+        logger.warning(
+            "DEV OTP for chat %s: %s (%s, agent %s)",
+            chat_id,
+            code,
+            format_money(amount, currency),
+            agent_name,
+        )
+        return None
+
+
 class TelegramOtpNotifier:
     def __init__(self, bot_token: str) -> None:
         self._token = bot_token

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Query, status
 from fastapi.responses import StreamingResponse
@@ -14,23 +14,31 @@ from app.api.deps import (
     OrderServiceDep,
     PdfServiceDep,
     SessionDep,
+    SettingsDep,
     StoreDep,
 )
 from app.api.v1.endpoints.common import default_period, pdf_response
-from app.core.exceptions import PermissionDeniedError
+from app.core.exceptions import InvalidAmountError, PermissionDeniedError
 from app.core.money import ZERO
+from app.core.signed_links import sign_link
 from app.models import OrderStatus, PaymentMethod, Store, Wholesaler
+from app.schemas.ledger import TransactionRead
 from app.schemas.order import (
     CancelOrderRequest,
     LastPaymentRead,
     OrderCreate,
     OrderRead,
     ProductRead,
+    StatementLinkResponse,
     StoreMeResponse,
+    TransactionPage,
 )
 from app.services.order_service import OrderLine
 
 router = APIRouter(prefix="/store", tags=["store"])
+
+STATEMENT_LINK_PURPOSE = "statement-pdf"
+STATEMENT_LINK_TTL_SECONDS = 300
 
 STORE_CANCELLABLE = frozenset({OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.CANCELLED})
 
@@ -56,6 +64,7 @@ async def store_me(
     return StoreMeResponse(
         store_id=store.id,
         store_name=store.name,
+        contact_name=store.contact_name,
         wholesaler_id=principal.wholesaler_id,
         wholesaler_name=wholesaler_name,
         currency=currency,
@@ -189,3 +198,54 @@ async def store_statement_pdf(
         date_to=end,
     )
     return pdf_response(document)
+
+
+@router.get("/transactions", response_model=TransactionPage)
+async def store_transactions(
+    principal: StoreDep,
+    ledger: LedgerServiceDep,
+    limit: int = Query(default=30, ge=1, le=100),
+    before_sequence: int | None = Query(default=None, ge=1),
+) -> TransactionPage:
+    """Debt and payment history, newest first (charges, payments, adjustments)."""
+    assert principal.store_id is not None
+    rows = await ledger.list_transactions(
+        store_id=principal.store_id, limit=limit, before_sequence=before_sequence
+    )
+    has_more = len(rows) == limit and rows[-1].sequence_no > 1
+    return TransactionPage(
+        items=[TransactionRead.model_validate(t) for t in rows],
+        next_before_sequence=rows[-1].sequence_no if has_more else None,
+    )
+
+
+@router.post("/statement-link", response_model=StatementLinkResponse)
+async def store_statement_link(
+    principal: StoreDep,
+    ledger: LedgerServiceDep,
+    settings: SettingsDep,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> StatementLinkResponse:
+    """A 5-minute signed URL for the Akt-sverka, for `Telegram.WebApp.downloadFile`
+    (the Telegram client downloads it without our Authorization header)."""
+    assert principal.store_id is not None
+    start, end = await default_period(ledger, principal.wholesaler_id, date_from, date_to)
+    if end < start:
+        raise InvalidAmountError("date_to must not be before date_from")
+    token, expires_at = sign_link(
+        {
+            "w": str(principal.wholesaler_id),
+            "s": str(principal.store_id),
+            "f": start.isoformat(),
+            "t": end.isoformat(),
+        },
+        secret=settings.otp_secret.get_secret_value(),
+        purpose=STATEMENT_LINK_PURPOSE,
+        ttl_seconds=STATEMENT_LINK_TTL_SECONDS,
+    )
+    return StatementLinkResponse(
+        url=f"{settings.api_v1_prefix}/files/statements/{token}",
+        filename=f"akt-sverka_{start:%Y%m%d}-{end:%Y%m%d}.pdf",
+        expires_at=datetime.fromtimestamp(expires_at, tz=UTC),
+    )

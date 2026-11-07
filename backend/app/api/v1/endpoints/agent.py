@@ -34,6 +34,7 @@ from app.schemas.order import (
     AgentStoreRead,
     DeliveryResponse,
     OrderRead,
+    ProductRead,
 )
 from app.services.order_service import OrderLine
 
@@ -223,3 +224,23 @@ async def agent_verify_otp(
         actor_telegram_user_id=principal.telegram_user_id,
     )
     return payment_response(result)
+
+
+@router.get("/catalog", response_model=list[ProductRead])
+async def agent_catalog(
+    principal: AgentDep,
+    orders: OrderServiceDep,
+    q: str | None = Query(default=None, max_length=100),
+    in_stock: bool = False,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> list[ProductRead]:
+    """Catalog for taking an order on the spot at a store."""
+    products = await orders.list_catalog(
+        wholesaler_id=principal.wholesaler_id,
+        search=q,
+        in_stock_only=in_stock,
+        limit=limit,
+        offset=offset,
+    )
+    return [ProductRead.model_validate(p) for p in products]

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.models.enums import OrderStatus, PaymentMethod, ProductUnit
 from app.schemas.common import IdempotencyKey, Money, ORMModel
-from app.schemas.ledger import ChargeResponse
+from app.schemas.ledger import ChargeResponse, TransactionRead
 
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=15, decimal_places=3)]
 
@@ -100,6 +100,7 @@ class LastPaymentRead(BaseModel):
 class StoreMeResponse(BaseModel):
     store_id: uuid.UUID
     store_name: str
+    contact_name: str | None
     wholesaler_id: uuid.UUID
     wholesaler_name: str
     currency: str
@@ -131,3 +132,15 @@ class MeResponse(BaseModel):
     wholesaler_id: uuid.UUID
     agent_id: uuid.UUID | None
     store_id: uuid.UUID | None
+
+
+class TransactionPage(BaseModel):
+    items: list[TransactionRead]
+    # Pass as `before_sequence` to get the next (older) page; null = no more rows.
+    next_before_sequence: int | None
+
+
+class StatementLinkResponse(BaseModel):
+    url: str  # relative to the API origin, e.g. /api/v1/files/statements/<token>
+    filename: str
+    expires_at: datetime

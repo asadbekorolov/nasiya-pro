@@ -55,6 +55,9 @@ kerak. Linux/Docker'da `apt-get install fonts-dejavu-core` yetarli (avtomatik to
 yoki `PDF_FONT_REGULAR_PATH` / `PDF_FONT_BOLD_PATH` ni bering. Shrift topilmasa
 Helvetica ishlatiladi va logda ogohlantirish chiqadi.
 
+Lokal ishlab chiqish: `scripts/seed_demo.py` demo ma'lumot yaratadi, `scripts/dev_init_data.py`
+Telegram'siz sinash uchun imzolangan `initData` beradi (frontend README'ga qarang).
+
 ## Autentifikatsiya va rollar
 
 Har bir so'rov: `Authorization: tma <Telegram.WebApp.initData>`.
@@ -115,6 +118,10 @@ Ombor ortiqcha sotilmasligi parallel test bilan tekshirilgan.
 | GET | `/store/orders/{id}` | do'konchi |
 | POST | `/store/orders/{id}/submit`, `/cancel` | do'konchi (tasdiqlangunga qadar) |
 | GET | `/store/statement.pdf?date_from&date_to` | do'konchi — Akt-sverka |
+| POST | `/store/statement-link` | do'konchi — `WebApp.downloadFile` uchun 5 daqiqalik imzolangan havola |
+| GET | `/store/transactions?before_sequence` | do'konchi — qarz/to'lov tarixi |
+| GET | `/files/statements/{token}` | ochiq, faqat imzolangan token bilan |
+| GET | `/agent/catalog` | agent |
 | GET | `/agent/stores` | agent — biriktirilgan do'konlar |
 | GET/POST | `/agent/orders` | agent |
 | POST | `/agent/orders/{id}/deliver` | agent |
