@@ -10,7 +10,17 @@ import ky, { HTTPError, TimeoutError } from "ky";
 
 import { getInitData } from "@/telegram/twa";
 
-const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+/**
+ * Production API (Render). Cloudflare Pages cannot proxy `/api` to another domain, so
+ * the Mini App calls it directly (the backend allows the Pages origin via CORS).
+ * VITE_API_BASE_URL overrides it; set it to an empty string for a same-origin deploy
+ * (reverse proxy, see deploy/). `npm run dev` uses the Vite proxy instead.
+ */
+const DEFAULT_API_ORIGIN = "https://nasiya-pro.onrender.com";
+
+const API_ORIGIN = (
+  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? "" : DEFAULT_API_ORIGIN)
+).replace(/\/+$/, "");
 export const API_PREFIX = `${API_ORIGIN}/api/v1`;
 
 let wholesalerId: string | null =

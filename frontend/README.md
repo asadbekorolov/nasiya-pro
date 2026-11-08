@@ -69,7 +69,7 @@ Pages loyihasi sozlamalari (Dashboard → Workers & Pages → Create → Pages �
 | Root directory | `frontend` |
 | Build command | `npm run build` |
 | Build output directory | `dist` |
-| Environment variables | `NODE_VERSION=22`, `VITE_API_BASE_URL=https://api.sizning-domen.uz` |
+| Environment variables | `NODE_VERSION=22` (`VITE_API_BASE_URL` ixtiyoriy, sukut: `https://nasiya-pro.onrender.com`) |
 
 Backend (`backend/.env`) tomonida:
 
@@ -78,6 +78,10 @@ CORS_ORIGINS=["https://<loyiha>.pages.dev"]
 WEBAPP_URL=https://<loyiha>.pages.dev
 ```
 
+> Pages `_redirects` boshqa domenga proksi qila olmaydi (faqat sayt ichidagi yo'llar),
+> shuning uchun Mini App Render API'siga to'g'ridan-to'g'ri so'rov yuboradi; backend
+> `FRONTEND_URL` (https://nasiya-pro.pages.dev) ni CORS'da ruxsat beradi.
+>
 > **Muhim:** Pages faqat frontendni beradi. API doimiy HTTPS manzilda ishlashi kerak
 > (`VITE_API_BASE_URL` build paytida kodga yoziladi). `run_live.py` ochadigan vaqtinchalik
 > `*.trycloudflare.com` manzili har ishga tushganda o'zgaradi — uni Pages'ga yozib
