@@ -116,3 +116,27 @@ Encrypt limitiga tushib qolish mumkin).
   Oylik akt-sverka ZIP so'rov paytida yaratiladi, Caddy uni 300 soniyagacha kutadi.
 - **Iframe.** `X-Frame-Options` qo'yilmagan: Telegram Web/Desktop Mini App'ni iframe
   ichida ochadi.
+
+## Muqobil: Render.com (Docker'siz)
+
+Ildizdagi [`render.yaml`](../render.yaml) Blueprint'i bitta web service yaratadi
+(root `backend`, Python 3.11.9, Supabase bazasi). Qo'lda yaratilgan service uchun:
+
+| Sozlama | Qiymat |
+|---|---|
+| Root Directory | `backend` |
+| Build Command | `pip install uv==0.12.8 && uv sync --frozen --no-dev` |
+| Start Command | `uv run --no-sync alembic upgrade head && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'` |
+| Health Check Path | `/api/v1/health/live` |
+
+Muhit o'zgaruvchilari: `PYTHON_VERSION=3.11.9`, `ENVIRONMENT=production`,
+`DATABASE_URL` (Supabase session pooler, `?ssl=require`), `TELEGRAM_BOT_TOKEN`
+(yoki `BOT_TOKEN`), `BOT_MODE=webhook`. `OTP_SECRET` ixtiyoriy — bo'lmasa bot
+tokenidan hosil qilinadi. Webhook manzili Render'ning `RENDER_EXTERNAL_URL`idan olinadi,
+`FRONTEND_URL` (sukut: `https://nasiya-pro.pages.dev`) CORS va `WEBAPP_URL`ga qo'shiladi.
+
+- `--no-dev` muhim: aks holda test vositalari (`pgserver`) ham o'rnatiladi.
+- Bitta bot tokeni bilan faqat bitta joy yangilanish oladi: Render webhook rejimida
+  ishlaganda lokal `run_live` (polling) ni to'xtating.
+- Bepul rejimda service 15 daqiqa so'rovsiz uxlaydi; Telegram webhook'i uni uyg'otadi
+  (birinchi javob ~1 daqiqagacha kechikishi mumkin).

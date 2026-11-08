@@ -1,0 +1,52 @@
+# Render Blueprint: Nasiya Pro API + Telegram bot (one web service).
+# Dashboard -> New -> Blueprint -> this repository. Secrets marked `sync: false` are
+# asked for once in the dashboard and never stored in git.
+#
+# Frontend: Cloudflare Pages (https://nasiya-pro.pages.dev), see frontend/README.md.
+# Database: Supabase session pooler, see backend/.env.example.
+services:
+  - type: web
+    name: nasiya-pro
+    runtime: python
+    rootDir: backend
+    region: frankfurt # closest to Supabase eu-west-1
+    plan: free
+    # --no-dev: tests/linters (pgserver etc.) are not installed on the server.
+    buildCommand: pip install uv==0.12.8 && uv sync --frozen --no-dev
+    # Migrations run on every start (the free plan has no pre-deploy step); Alembic
+    # takes a lock, and an up-to-date database is a no-op. --no-sync: never install
+    # packages at start-up, the build did that.
+    startCommand: >-
+      uv run --no-sync alembic upgrade head &&
+      uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port $PORT
+      --proxy-headers --forwarded-allow-ips '*' --no-server-header
+    healthCheckPath: /api/v1/health/live
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENVIRONMENT
+        value: production
+      # postgresql+asyncpg://postgres.<ref>:<password>@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?ssl=require
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_MAX_OVERFLOW
+        value: "5"
+      # BotFather token (TELEGRAM_BOT_TOKEN; BOT_TOKEN is accepted too).
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        value: nasiya_pro_bot
+      # Optional: if absent it is derived from the bot token.
+      - key: OTP_SECRET
+        generateValue: true
+      # Webhook: Telegram wakes the (free, sleeping) service. The URL comes from Render's
+      # RENDER_EXTERNAL_URL and the secret is derived from the bot token.
+      - key: BOT_MODE
+        value: webhook
+      - key: FRONTEND_URL
+        value: https://nasiya-pro.pages.dev
+      - key: WEB_CONCURRENCY
+        value: "1"
