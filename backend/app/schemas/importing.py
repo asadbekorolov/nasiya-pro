@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -40,3 +41,14 @@ def import_response(result: ImportResult) -> ImportResultResponse:
             ImportRowErrorRead(row=e.row, column=e.column, message=e.message) for e in result.errors
         ],
     )
+
+
+class ExportLinkRequest(BaseModel):
+    kind: Literal["stores", "stock", "statements"]
+    month: str | None = None  # YYYY-MM, required for "statements"
+
+
+class ExportLinkResponse(BaseModel):
+    url: str  # relative to the API origin: /api/v1/files/exports/<token>
+    filename: str
+    expires_at: datetime

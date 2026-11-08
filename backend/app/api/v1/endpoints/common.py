@@ -8,8 +8,10 @@ from datetime import date
 from urllib.parse import quote
 
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.services.excel_service import ImportKind, build_template, template_filename
+from app.services.export_service import ExportFile, ZipExport
 from app.services.ledger_service import LedgerService
 from app.services.pdf_service import PdfDocument
 
@@ -59,3 +61,35 @@ def xlsx_template_response(kind: ImportKind) -> StreamingResponse:
             "Cache-Control": "no-cache",
         },
     )
+
+
+def export_file_response(export: ExportFile) -> StreamingResponse:
+    return StreamingResponse(
+        io.BytesIO(export.content),
+        media_type=export.media_type,
+        headers={
+            "Content-Disposition": _disposition(export.filename),
+            "Content-Length": str(len(export.content)),
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+def zip_response(archive: ZipExport) -> StreamingResponse:
+    """Streams the spooled archive in chunks. The temp file is closed when the stream
+    ends, and again (a no-op) by the background task if the client never read it."""
+    return StreamingResponse(
+        archive.stream(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": _disposition(archive.filename),
+            "Content-Length": str(archive.size),
+            "Cache-Control": "private, no-store",
+            "X-Document-Count": str(archive.documents),
+        },
+        background=BackgroundTask(archive.close),
+    )
+
+
+def _disposition(filename: str) -> str:
+    return f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"

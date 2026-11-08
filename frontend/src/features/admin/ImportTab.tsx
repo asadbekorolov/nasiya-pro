@@ -9,6 +9,7 @@ import { toast } from "@/components/toast";
 import { formatMoney, toCents } from "@/lib/money";
 import { confirm, haptic, nativeDownload } from "@/telegram/twa";
 
+import { ExportCard } from "./ExportCard";
 import { Badge } from "./widgets";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -62,6 +63,7 @@ export function ImportTab({ onImported }: { onImported: () => void }) {
         <ImportCard kind="products" onImported={onImported} />
         <ImportCard kind="stores" onImported={onImported} />
       </div>
+      <ExportCard />
     </div>
   );
 }

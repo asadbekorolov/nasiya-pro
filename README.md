@@ -7,6 +7,11 @@ buyurtma, ombor zaxirasi va qarz (nasiya) hisobi — hammasi Telegram Mini App i
 |---|---|---|
 | `backend/` | FastAPI · SQLAlchemy 2 · PostgreSQL · aiogram 3 | [backend/README.md](backend/README.md) |
 | `frontend/` | React 19 · TypeScript · Vite · Tailwind v4 | [frontend/README.md](frontend/README.md) |
+| `deploy/` | Docker Compose · Caddy (HTTPS) · nginx · PostgreSQL 16 · Redis | [deploy/README.md](deploy/README.md) |
+
+**Production:** haqiqiy domen va avtomatik SSL bilan — [deploy/README.md](deploy/README.md)
+(`docker compose --env-file deploy/.env.prod -f docker-compose.prod.yml up -d --build`).
+Quyidagi `run_live.py` va vaqtinchalik tunnel faqat ishlab chiqish/sinov uchun.
 
 ## Bitta buyruq bilan jonli ishga tushirish
 

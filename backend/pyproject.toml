@@ -17,6 +17,7 @@ dependencies = [
     "reportlab>=4.2",
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.20",
+    "redis>=5.2",
 ]
 
 [dependency-groups]

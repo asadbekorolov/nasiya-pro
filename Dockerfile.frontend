@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+#
+# Nasiya Pro — Telegram Mini App (React + Vite), served by unprivileged nginx.
+#
+#   docker build -f Dockerfile.frontend -t nasiya-pro-frontend .
+#
+# The Mini App calls the API on the same origin (/api/v1, routed by Caddy), so no
+# build-time URL is needed. Set VITE_API_BASE_URL only if the API lives elsewhere.
+
+ARG NODE_VERSION=22
+
+# --- build -------------------------------------------------------------------------------
+FROM node:${NODE_VERSION}-alpine AS build
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+
+COPY frontend/ ./
+ARG VITE_API_BASE_URL=
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+# Dev-only values (VITE_DEV_INIT_DATA, ...) are compiled out of production builds,
+# and .env.local files are excluded by .dockerignore.
+RUN npm run build
+
+# --- serve -------------------------------------------------------------------------------
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+COPY deploy/nginx.frontend.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1

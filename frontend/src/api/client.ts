@@ -123,8 +123,8 @@ export const apiClient = {
       http.post(path, { body, searchParams: searchParams(query), retry: 0, timeout: 120_000 }).json<T>(),
     );
   },
-  blob: (path: string, query?: Query) =>
-    run(() => http.get(path, { searchParams: searchParams(query), timeout: 60_000 }).blob()),
+  blob: (path: string, query?: Query, timeout = 60_000) =>
+    run(() => http.get(path, { searchParams: searchParams(query), timeout }).blob()),
 };
 
 /** Absolute URL for a backend path such as `/api/v1/files/...`. */

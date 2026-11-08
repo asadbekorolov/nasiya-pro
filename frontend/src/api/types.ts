@@ -197,6 +197,7 @@ export interface StockItem {
 }
 
 export type ImportKind = "products" | "stores";
+export type ExportKind = "stores" | "stock" | "statements";
 
 export interface ImportRowError {
   row: number; // Excel row number

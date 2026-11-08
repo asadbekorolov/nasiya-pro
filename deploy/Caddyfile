@@ -1,0 +1,52 @@
+# Edge proxy: automatic HTTPS (Let's Encrypt / ZeroSSL) for one domain.
+#
+#   https://{$DOMAIN}/api/*   -> backend:8000   (FastAPI; includes the Telegram webhook)
+#   https://{$DOMAIN}/*       -> frontend:8080  (Mini App, nginx)
+#
+# Requirements: DNS A/AAAA record of DOMAIN points at this server; ports 80 and 443
+# are open (80 is used for the ACME HTTP challenge and redirects to HTTPS).
+{
+	email {$ACME_EMAIL}
+	servers {
+		# Real client IPs only from our own containers (no external proxy in front).
+		trusted_proxies static private_ranges
+	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		# No X-Frame-Options: Telegram Web/Desktop embed Mini Apps in an iframe.
+	}
+
+	handle /api/* {
+		# Excel uploads are limited to 5 MB by the API; leave headroom for multipart.
+		request_body {
+			max_size 8MB
+		}
+		reverse_proxy backend:8000 {
+			health_uri /api/v1/health/live
+			health_interval 15s
+			# Monthly Akt-sverka ZIPs are generated on request and can take a while.
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:8080
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

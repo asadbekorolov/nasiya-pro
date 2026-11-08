@@ -4,6 +4,7 @@ import type {
   AgentStore,
   AgingReport,
   DeliveryResult,
+  ExportKind,
   ImportKind,
   ImportResult,
   Me,
@@ -103,4 +104,13 @@ export const adminApi = {
     apiClient.upload<ImportResult>(`admin/import/${kind}`, file, { dry_run: dryRun }),
   /** Public (no auth) so Telegram's native downloader can fetch it. */
   templatePath: (kind: ImportKind) => `/api/v1/files/templates/${kind}.xlsx`,
+
+  /** Authenticated download (browser). `month` (YYYY-MM) is only for statements. */
+  exportBlob: (kind: ExportKind, month?: string) =>
+    kind === "statements"
+      ? apiClient.blob("admin/export/statements.zip", { month }, 300_000)
+      : apiClient.blob(`admin/export/${kind}.xlsx`, undefined, 120_000),
+  /** 5-minute signed URL for Telegram's native downloader (no auth header there). */
+  exportLink: (kind: ExportKind, month?: string) =>
+    apiClient.post<StatementLink>("admin/export/link", { kind, month }),
 };

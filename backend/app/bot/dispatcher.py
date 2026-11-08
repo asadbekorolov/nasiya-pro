@@ -21,6 +21,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
+from aiogram.fsm.storage.base import BaseStorage
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, Update
 from aiogram.utils.token import TokenValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -47,10 +49,20 @@ def create_bot(settings: Settings) -> Bot | None:
         return None
 
 
+def create_storage(settings: Settings) -> BaseStorage:
+    """Redis when REDIS_URL is set (state shared by all workers, survives restarts),
+    otherwise process memory (development, tests)."""
+    if settings.redis_url:
+        from aiogram.fsm.storage.redis import RedisStorage
+
+        return RedisStorage.from_url(settings.redis_url)
+    return MemoryStorage()
+
+
 def create_dispatcher(
     sessionmaker: async_sessionmaker[AsyncSession], settings: Settings
 ) -> Dispatcher:
-    dp = Dispatcher()
+    dp = Dispatcher(storage=create_storage(settings))
     middleware = DependenciesMiddleware(sessionmaker, settings)
     dp.message.outer_middleware(middleware)
     dp.callback_query.outer_middleware(middleware)
@@ -138,5 +150,8 @@ class BotRuntime:
                 self._polling_task.cancel()
             self._polling_task = None
             logger.info("telegram bot polling stopped")
+        if self.dispatcher is not None:
+            with contextlib.suppress(Exception):  # e.g. Redis already gone at shutdown
+                await self.dispatcher.storage.close()
         if self.bot is not None:
             await self.bot.session.close()

@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     bot_mode: Literal["off", "polling", "webhook"] = "off"
     bot_webhook_base_url: str | None = None  # e.g. https://api.example.uz
     bot_webhook_secret: SecretStr | None = None  # X-Telegram-Bot-Api-Secret-Token
+    # Bot conversation (FSM) state. Empty => in process memory (one process only);
+    # set it in production so every API worker shares state, e.g. redis://redis:6379/0
+    redis_url: str | None = None
 
     # --- Payment OTP ---
     otp_secret: SecretStr

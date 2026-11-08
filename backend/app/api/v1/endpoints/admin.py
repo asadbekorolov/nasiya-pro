@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, File, Query, UploadFile, status
@@ -20,15 +20,19 @@ from app.api.deps import (
     OrderServiceDep,
     PdfServiceDep,
     SessionDep,
+    SettingsDep,
 )
 from app.api.v1.endpoints.common import (
     XLSX_MEDIA_TYPE,
     default_period,
+    export_file_response,
     pdf_response,
     xlsx_template_response,
+    zip_response,
 )
 from app.core.exceptions import NotFoundError
 from app.core.money import ZERO
+from app.core.signed_links import sign_link
 from app.core.uuid7 import uuid7
 from app.db.uow import atomic
 from app.models import (
@@ -40,7 +44,12 @@ from app.models import (
     Store,
     Wholesaler,
 )
-from app.schemas.importing import ImportResultResponse, import_response
+from app.schemas.importing import (
+    ExportLinkRequest,
+    ExportLinkResponse,
+    ImportResultResponse,
+    import_response,
+)
 from app.schemas.ledger import (
     AdjustmentCreate,
     AdjustmentResponse,
@@ -73,6 +82,7 @@ from app.services.excel_service import (
     ImportFileError,
     ImportKind,
 )
+from app.services.export_service import ExportService, parse_month
 from app.services.ledger_service import LedgerService
 from app.services.locks import lock_store
 
@@ -371,6 +381,76 @@ async def import_template(kind: ImportKind, admin: AdminDep) -> StreamingRespons
     """Blank workbook to fill in (also public at /files/templates/{kind}.xlsx for
     Telegram's native downloader, which cannot send auth headers)."""
     return xlsx_template_response(kind)
+
+
+# --- exports -------------------------------------------------------------------------------
+
+EXPORT_LINK_PURPOSE = "admin-export"
+EXPORT_LINK_TTL_SECONDS = 300
+MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+ZIP_RESPONSES: dict[int | str, dict[str, Any]] = {200: {"content": {"application/zip": {}}}}
+XLSX_RESPONSES: dict[int | str, dict[str, Any]] = {200: {"content": {XLSX_MEDIA_TYPE: {}}}}
+
+
+def export_filename(kind: str, month: str, today: date) -> str:
+    if kind == "statements":
+        start, _ = parse_month(month, today)
+        return f"statements_{start:%Y_%m}.zip"
+    prefix = "dokonlar-qarzlar" if kind == "stores" else "ombor-qoldiqlari"
+    return f"{prefix}_{today:%Y-%m-%d}.xlsx"
+
+
+@router.get("/export/stores.xlsx", response_class=StreamingResponse, responses=XLSX_RESPONSES)
+async def export_stores(
+    admin: AdminDep, session: SessionDep, ledger: LedgerServiceDep, pdf: PdfServiceDep
+) -> StreamingResponse:
+    """Stores & receivables: owner, phone, limit, current/overdue debt, last payment."""
+    service = ExportService(session, ledger, pdf)
+    return export_file_response(await service.stores_xlsx(wholesaler_id=admin.wholesaler_id))
+
+
+@router.get("/export/stock.xlsx", response_class=StreamingResponse, responses=XLSX_RESPONSES)
+async def export_stock(
+    admin: AdminDep, session: SessionDep, ledger: LedgerServiceDep, pdf: PdfServiceDep
+) -> StreamingResponse:
+    """Active catalog: wholesale price, on hand, reserved, free stock, stock value."""
+    service = ExportService(session, ledger, pdf)
+    return export_file_response(await service.stock_xlsx(wholesaler_id=admin.wholesaler_id))
+
+
+@router.get("/export/statements.zip", response_class=StreamingResponse, responses=ZIP_RESPONSES)
+async def export_statements(
+    admin: AdminDep,
+    session: SessionDep,
+    ledger: LedgerServiceDep,
+    pdf: PdfServiceDep,
+    month: str = Query(pattern=MONTH_PATTERN, examples=["2026-10"]),
+) -> StreamingResponse:
+    """Akt-sverka PDFs of every active store for one month: statements_YYYY_MM.zip."""
+    service = ExportService(session, ledger, pdf)
+    archive = await service.statements_zip(wholesaler_id=admin.wholesaler_id, month=month)
+    return zip_response(archive)
+
+
+@router.post("/export/link", response_model=ExportLinkResponse)
+async def export_link(
+    body: ExportLinkRequest, admin: AdminDep, ledger: LedgerServiceDep, settings: SettingsDep
+) -> ExportLinkResponse:
+    """Short-lived signed URL for Telegram's native downloader (it cannot send the auth
+    header). The token is bound to this tenant and this one export."""
+    today = await ledger.local_today(admin.wholesaler_id)
+    filename = export_filename(body.kind, body.month or "", today)  # validates the month
+    token, expires_at = sign_link(
+        {"w": str(admin.wholesaler_id), "k": body.kind, "m": body.month or ""},
+        secret=settings.otp_secret.get_secret_value(),
+        purpose=EXPORT_LINK_PURPOSE,
+        ttl_seconds=EXPORT_LINK_TTL_SECONDS,
+    )
+    return ExportLinkResponse(
+        url=f"{settings.api_v1_prefix}/files/exports/{token}",
+        filename=filename,
+        expires_at=datetime.fromtimestamp(expires_at, tz=UTC),
+    )
 
 
 # --- money -----------------------------------------------------------------------------
