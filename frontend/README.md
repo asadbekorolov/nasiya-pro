@@ -53,6 +53,33 @@ sinalishi uchun backend `.env` da `OTP_DELIVERY=log` qo'ying — kod server logi
 
 ## Deploy
 
-`dist/` ni API bilan bir domenda (reverse proxy orqali `/api` → FastAPI) joylashtiring
-va BotFather'da Mini App URL sifatida HTTPS manzilni bering. Boshqa domenda bo'lsa,
-`VITE_API_BASE_URL` ni o'rnating va backend `CORS_ORIGINS` ga frontend domenini qo'shing.
+**Bir domenda (tavsiya):** `dist/` ni API bilan bir domenda (reverse proxy orqali
+`/api` → FastAPI) joylashtiring — tayyor andoza: [../deploy/README.md](../deploy/README.md).
+
+### Cloudflare Pages
+
+`public/_redirects` (SPA: `/admin`, `/agent`, `/store` → `index.html`) va `public/_headers`
+(`index.html` keshlanmaydi, `/assets/*` bir yil keshlanadi) build paytida `dist/` ga
+ko'chiriladi.
+
+Pages loyihasi sozlamalari (Dashboard → Workers & Pages → Create → Pages → Git):
+
+| Sozlama | Qiymat |
+|---|---|
+| Root directory | `frontend` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Environment variables | `NODE_VERSION=22`, `VITE_API_BASE_URL=https://api.sizning-domen.uz` |
+
+Backend (`backend/.env`) tomonida:
+
+```env
+CORS_ORIGINS=["https://<loyiha>.pages.dev"]
+WEBAPP_URL=https://<loyiha>.pages.dev
+```
+
+> **Muhim:** Pages faqat frontendni beradi. API doimiy HTTPS manzilda ishlashi kerak
+> (`VITE_API_BASE_URL` build paytida kodga yoziladi). `run_live.py` ochadigan vaqtinchalik
+> `*.trycloudflare.com` manzili har ishga tushganda o'zgaradi — uni Pages'ga yozib
+> bo'lmaydi. Backend uchun nomlangan Cloudflare Tunnel (o'z domeningizda) yoki
+> [Docker deploy](../deploy/README.md) ishlating.

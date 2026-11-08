@@ -1,0 +1,12 @@
+# Cloudflare Pages response headers.
+# index.html must never be cached (Telegram's webview would keep an old build after a
+# deploy); Vite's content-hashed /assets/* files can be cached forever.
+/*
+  Cache-Control: no-cache
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/assets/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable

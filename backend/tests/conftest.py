@@ -18,6 +18,9 @@ os.environ.setdefault(
     ),
 )
 os.environ.setdefault("ENVIRONMENT", "test")
+# Keep the test server's own zone, whatever backend/.env sets for the real database
+# (the embedded Windows Postgres used locally ships without tz data and rejects 'UTC').
+os.environ.setdefault("DB_SESSION_TIMEZONE", "")
 os.environ["TELEGRAM_BOT_TOKEN"] = "123456:TEST-TOKEN"
 os.environ.setdefault("OTP_SECRET", "test-otp-secret-0123456789-abcdefghijklmnop")
 # Never talk to Telegram from tests, whatever the developer's backend/.env says.

@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -42,7 +43,31 @@ def build_engine(settings: Settings) -> AsyncEngine:
             pool_recycle=settings.db_pool_recycle,
         )
 
-    return create_async_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
+    engine = create_async_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
+
+    if not settings.db_use_pgbouncer:
+        # Connection poolers (Supabase Supavisor in session mode, PgBouncer) may drop
+        # startup parameters, so the limits above would silently not apply. Re-apply them
+        # with SET on every new physical connection: in session mode the connection is
+        # ours for its whole life. (Transaction mode must not use session SETs; configure
+        # those limits on the database role instead.)
+        statements = [
+            f"SET statement_timeout = {int(settings.db_statement_timeout_ms)}",
+            f"SET lock_timeout = {int(settings.db_lock_timeout_ms)}",
+        ]
+        if settings.db_session_timezone:
+            statements.append(f"SET TIME ZONE '{settings.db_session_timezone}'")
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _apply_session_limits(dbapi_connection: Any, _record: Any) -> None:
+            cursor = dbapi_connection.cursor()
+            try:
+                for statement in statements:
+                    cursor.execute(statement)
+            finally:
+                cursor.close()
+
+    return engine
 
 
 def build_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
