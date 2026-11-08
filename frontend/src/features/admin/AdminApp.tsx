@@ -1,4 +1,4 @@
-import { BarChart3, ClipboardList, Package, RefreshCw, Store as StoreIcon } from "lucide-react";
+import { BarChart3, ClipboardList, FileSpreadsheet, Package, RefreshCw, Store as StoreIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { adminApi } from "@/api/endpoints";
@@ -8,17 +8,19 @@ import { useAsync } from "@/lib/useAsync";
 import { haptic } from "@/telegram/twa";
 
 import { AgingTab } from "./AgingTab";
+import { ImportTab } from "./ImportTab";
 import { OrdersTab } from "./OrdersTab";
 import { StockTab } from "./StockTab";
 import { StoresTab } from "./StoresTab";
 
-type Tab = "aging" | "orders" | "stores" | "stock";
+type Tab = "aging" | "orders" | "stores" | "stock" | "import";
 
 const TITLES: Record<Tab, { title: string; subtitle: string }> = {
   aging: { title: "Debitorlik", subtitle: "Qarzlar yoshi va eng katta qarzdorlar" },
   orders: { title: "Buyurtmalar", subtitle: "Tasdiqlash, yetkazish va bekor qilish" },
   stores: { title: "Do'konlar va limitlar", subtitle: "Balans va kredit limitlari" },
   stock: { title: "Ombor", subtitle: "Qoldiqlar va kam qolgan tovarlar" },
+  import: { title: "Import / Eksport", subtitle: "Excel orqali tovarlar va do'konlar qarzini kiritish" },
 };
 
 /**
@@ -45,6 +47,7 @@ export default function AdminApp() {
     { id: "aging", label: "Debitorlik", icon: <BarChart3 /> },
     { id: "stores", label: "Do'konlar", icon: <StoreIcon /> },
     { id: "stock", label: "Ombor", icon: <Package /> },
+    { id: "import", label: "Import", icon: <FileSpreadsheet /> },
   ];
 
   let content: ReactNode;
@@ -60,8 +63,11 @@ export default function AdminApp() {
     content = (
       <StoresTab stores={storeList} onUpdated={(s) => setPatched((prev) => ({ ...prev, [s.id]: s }))} />
     );
-  } else {
+  } else if (tab === "stock") {
     content = <StockTab refreshKey={refreshKey} />;
+  } else {
+    // Refetch stores/stock after an import, but keep this tab's result on screen.
+    content = <ImportTab onImported={() => void stores.reload()} />;
   }
 
   return (

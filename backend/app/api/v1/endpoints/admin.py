@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Query, status
+from fastapi import APIRouter, BackgroundTasks, File, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -21,7 +21,12 @@ from app.api.deps import (
     PdfServiceDep,
     SessionDep,
 )
-from app.api.v1.endpoints.common import default_period, pdf_response
+from app.api.v1.endpoints.common import (
+    XLSX_MEDIA_TYPE,
+    default_period,
+    pdf_response,
+    xlsx_template_response,
+)
 from app.core.exceptions import NotFoundError
 from app.core.money import ZERO
 from app.core.uuid7 import uuid7
@@ -35,6 +40,7 @@ from app.models import (
     Store,
     Wholesaler,
 )
+from app.schemas.importing import ImportResultResponse, import_response
 from app.schemas.ledger import (
     AdjustmentCreate,
     AdjustmentResponse,
@@ -60,6 +66,12 @@ from app.schemas.order import (
     OrderRead,
     StockItemRead,
     StockReport,
+)
+from app.services.excel_service import (
+    MAX_FILE_BYTES,
+    ExcelImportService,
+    ImportFileError,
+    ImportKind,
 )
 from app.services.ledger_service import LedgerService
 from app.services.locks import lock_store
@@ -295,6 +307,70 @@ async def stock_report(
         stock_value=stock_value.quantize(Decimal("0.01")),
         items=low if low_only else items,
     )
+
+
+# --- Excel import (onboarding) -------------------------------------------------------------
+
+
+async def _read_upload(file: UploadFile) -> bytes:
+    name = (file.filename or "").lower()
+    if name.endswith(".xls") or name.endswith(".csv"):
+        raise ImportFileError(
+            "Faqat .xlsx fayllar qabul qilinadi. Excelda «Saqlash» -> «Excel kitobi (.xlsx)»"
+        )
+    data = await file.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        raise ImportFileError(f"Fayl juda katta (ko'pi bilan {MAX_FILE_BYTES // 2**20} MB)")
+    return data
+
+
+@router.post("/import/products", response_model=ImportResultResponse)
+async def import_products(
+    admin: AdminDep,
+    session: SessionDep,
+    ledger: LedgerServiceDep,
+    file: UploadFile = File(..., description=".xlsx made from the products template"),
+    dry_run: bool = Query(default=False, description="validate only, write nothing"),
+) -> ImportResultResponse:
+    """Upsert the catalog: rows with a known SKU update that product (name, price, stock,
+    unit), new SKUs are created. Bad rows are skipped and reported by Excel row number;
+    the good ones are written in one transaction."""
+    data = await _read_upload(file)
+    result = await ExcelImportService(session, ledger).import_products(
+        wholesaler_id=admin.wholesaler_id, data=data, dry_run=dry_run
+    )
+    return import_response(result)
+
+
+@router.post("/import/stores", response_model=ImportResultResponse)
+async def import_stores(
+    admin: AdminDep,
+    session: SessionDep,
+    ledger: LedgerServiceDep,
+    file: UploadFile = File(..., description=".xlsx made from the stores template"),
+    dry_run: bool = Query(default=False, description="validate only, write nothing"),
+) -> ImportResultResponse:
+    """Create stores; a positive opening debt is booked as a ledger adjustment. Stores
+    whose name already exists are reported, never duplicated (safe to re-upload)."""
+    data = await _read_upload(file)
+    result = await ExcelImportService(session, ledger).import_stores(
+        wholesaler_id=admin.wholesaler_id,
+        data=data,
+        dry_run=dry_run,
+        actor_telegram_user_id=admin.telegram_user_id,
+    )
+    return import_response(result)
+
+
+@router.get(
+    "/import/template/{kind}",
+    response_class=StreamingResponse,
+    responses={200: {"content": {XLSX_MEDIA_TYPE: {}}}},
+)
+async def import_template(kind: ImportKind, admin: AdminDep) -> StreamingResponse:
+    """Blank workbook to fill in (also public at /files/templates/{kind}.xlsx for
+    Telegram's native downloader, which cannot send auth headers)."""
+    return xlsx_template_response(kind)
 
 
 # --- money -----------------------------------------------------------------------------

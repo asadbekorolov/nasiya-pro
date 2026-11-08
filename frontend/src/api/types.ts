@@ -196,6 +196,26 @@ export interface StockItem {
   is_low: boolean;
 }
 
+export type ImportKind = "products" | "stores";
+
+export interface ImportRowError {
+  row: number; // Excel row number
+  column: string | null;
+  message: string;
+}
+
+export interface ImportResult {
+  kind: ImportKind;
+  dry_run: boolean;
+  total_rows: number;
+  imported: number;
+  created: number;
+  updated: number;
+  failed_rows: number;
+  opening_debt_total: Money;
+  errors: ImportRowError[];
+}
+
 export interface StockReport {
   threshold: Quantity;
   total_products: number;

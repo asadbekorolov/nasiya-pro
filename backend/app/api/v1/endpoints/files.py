@@ -9,10 +9,11 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import PdfServiceDep, SettingsDep
-from app.api.v1.endpoints.common import pdf_response
+from app.api.v1.endpoints.common import pdf_response, xlsx_template_response
 from app.api.v1.endpoints.store import STATEMENT_LINK_PURPOSE
 from app.core.exceptions import AuthenticationError
 from app.core.signed_links import verify_link
+from app.services.excel_service import ImportKind
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -39,3 +40,16 @@ async def download_statement(
         wholesaler_id=wholesaler_id, store_id=store_id, date_from=date_from, date_to=date_to
     )
     return pdf_response(document)
+
+
+@router.get(
+    "/templates/{kind}.xlsx",
+    response_class=StreamingResponse,
+    responses={
+        200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}}
+    },
+)
+async def download_import_template(kind: ImportKind) -> StreamingResponse:
+    """Blank import templates hold only column headers and sample rows, so they are
+    public: Telegram's `downloadFile` fetches the URL itself, without auth headers."""
+    return xlsx_template_response(kind)

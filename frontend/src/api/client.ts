@@ -115,6 +115,14 @@ export const apiClient = {
     ),
   patch: <T>(path: string, body: unknown) =>
     run(() => http.patch(path, { json: body, retry: 0 }).json<T>()),
+  /** multipart/form-data upload (the browser sets the boundary header itself). */
+  upload: <T>(path: string, file: File, query?: Query) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    return run(() =>
+      http.post(path, { body, searchParams: searchParams(query), retry: 0, timeout: 120_000 }).json<T>(),
+    );
+  },
   blob: (path: string, query?: Query) =>
     run(() => http.get(path, { searchParams: searchParams(query), timeout: 60_000 }).blob()),
 };

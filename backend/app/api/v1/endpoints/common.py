@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from fastapi.responses import StreamingResponse
 
+from app.services.excel_service import ImportKind, build_template, template_filename
 from app.services.ledger_service import LedgerService
 from app.services.pdf_service import PdfDocument
 
@@ -39,5 +40,22 @@ def pdf_response(document: PdfDocument) -> StreamingResponse:
             "Content-Length": str(len(document.content)),
             "Cache-Control": "private, no-store",
             "X-Document-Code": document.document_code,
+        },
+    )
+
+
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def xlsx_template_response(kind: ImportKind) -> StreamingResponse:
+    content = build_template(kind)
+    filename = template_filename(kind)
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(content)),
+            "Cache-Control": "no-cache",
         },
     )

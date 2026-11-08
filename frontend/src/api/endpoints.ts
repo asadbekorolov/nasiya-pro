@@ -4,6 +4,8 @@ import type {
   AgentStore,
   AgingReport,
   DeliveryResult,
+  ImportKind,
+  ImportResult,
   Me,
   Order,
   OrderLineIn,
@@ -95,4 +97,10 @@ export const adminApi = {
     apiClient.post<Order>(`admin/orders/${orderId}/cancel`, { reason: reason || undefined }),
 
   stock: (threshold: string) => apiClient.get<StockReport>("admin/stock", { threshold }),
+
+  /** `dryRun` validates the whole file against the database and writes nothing. */
+  importFile: (kind: ImportKind, file: File, dryRun: boolean) =>
+    apiClient.upload<ImportResult>(`admin/import/${kind}`, file, { dry_run: dryRun }),
+  /** Public (no auth) so Telegram's native downloader can fetch it. */
+  templatePath: (kind: ImportKind) => `/api/v1/files/templates/${kind}.xlsx`,
 };
